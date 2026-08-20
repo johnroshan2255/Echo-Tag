@@ -8,6 +8,9 @@ import { visualizer } from 'rollup-plugin-visualizer'
 //  - `engine` (PixiJS) and `game` chunks are prefetched in parallel, never block first paint.
 //  - No image/font/audio assets are fetched at all; every visual is generated at runtime.
 export default defineConfig(({ mode }) => ({
+  // Relative paths: Poki (and any static host) serves the build from a subpath/CDN, where
+  // absolute '/a/...' URLs would 404 the chunks.
+  base: './',
   plugins: [
     preact(),
     // Poki serves prebuilt static files; ship precompressed so their CDN can serve them directly.

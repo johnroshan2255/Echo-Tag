@@ -31,6 +31,7 @@ import { renderIndicator } from './render/indicator.ts'
 import { createAnimState, onTagged, renderPlayers } from './render/playerRenderer.ts'
 import { BODY, ECHO } from './render/templates.ts'
 import { renderMarkers } from './render/wardrobeMarkers.ts'
+import { pokiCommercialBreak, pokiGameplayStart, pokiGameplayStop } from '../platform/poki.ts'
 import { FOG_COLOR, FOG_MAX_ALPHA, HIDDEN_VISION_SCALE, VISION_CLEAR, VISION_MAX } from './theme.ts'
 
 /**
@@ -95,7 +96,12 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   const keyboard = createKeyboard()
   // Both schemes live at once — an iPad with a keyboard case is both devices.
   const joystick = createJoystick()
-  const localInput = (): number => (joystick.active ? joystick.packed : keyboard.packed)
+  const localInput = (): number => {
+    const packed = joystick.active ? joystick.packed : keyboard.packed
+    // Poki's gameplayStart contract: on the first INPUT of a session, never on load.
+    if (packed !== 0 && world.phase === RoundPhase.Playing) pokiGameplayStart()
+    return packed
+  }
   const driver = createDriverState()
   // Created here — inside the Play-click call stack — so the AudioContext starts unlocked.
   const audio = createAudioDirector()
@@ -140,6 +146,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
 
   // Net wiring: lobby overlay, tag stings, per-round camera snaps.
   let lobbyUi: import('./net/lobbyUi.ts').LobbyUi | null = null
+  let cleanupNet: (() => void) | null = null
   if (net) {
     const { createLobbyUi } = await import('./net/lobbyUi.ts')
     lobbyUi = createLobbyUi(() => net.start())
@@ -148,6 +155,19 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       onTagged(anim, to, performance.now())
       audio.onTag(world, (mySlot = net.mySlot), from, to)
     })
+    net.onTag // (tag handling above)
+    // Server-driven rounds: the phase transition arrives via snapshot; watch it for the
+    // gameplayStop/ad-break moment.
+    let prevPhase = world.phase
+    const watchPhase = setInterval(() => {
+      if (world.phase !== prevPhase) {
+        if (prevPhase === RoundPhase.Playing) {
+          void pokiCommercialBreak(() => audio.setMuted(true), () => audio.setMuted(false))
+        }
+        prevPhase = world.phase
+      }
+    }, 300)
+    cleanupNet = () => clearInterval(watchPhase)
     net.onRoundSetup(() => {
       mySlot = net.mySlot
       setLayersMap(layers, world.map)
@@ -173,6 +193,13 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   relayout()
   addEventListener('resize', relayout, { passive: true })
 
+  // Tab hidden = play stopped, for the platform's session accounting. The next input after
+  // returning re-fires gameplayStart via localInput().
+  const onVis = (): void => {
+    if (document.hidden) pokiGameplayStop()
+  }
+  document.addEventListener('visibilitychange', onVis)
+
   // ── Simulation step ──
   let simTick = 0
   const stepNet = (): void => {
@@ -192,6 +219,10 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     if (ev.tagCount > 0) {
       onTagged(anim, ev.tagTo, performance.now())
       audio.onTag(world, LOCAL_SLOT, ev.tagFrom, ev.tagTo)
+    }
+    if (ev.roundEnded) {
+      // Between rounds is the platform's ad slot; audio stays silent for its duration.
+      void pokiCommercialBreak(() => audio.setMuted(true), () => audio.setMuted(false))
     }
 
     // Round over: rotate to the next map and go again. (Phase 7 puts the leaderboard here.)
@@ -281,9 +312,11 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     destroy(): void {
       cancelAnimationFrame(raf)
       removeEventListener('resize', relayout)
+      document.removeEventListener('visibilitychange', onVis)
       keyboard.destroy()
       joystick.destroy()
       audio.destroy()
+      cleanupNet?.()
       lobbyUi?.destroy()
       net?.destroy()
       renderer.destroy()

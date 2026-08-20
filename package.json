@@ -27,7 +27,8 @@
     "check:browser": "node tools/check/browser-check.ts",
     "check": "npm run build && npm run size && npm run check:browser",
     "crop": "node tools/check/crop.ts",
-    "check:mp": "node tools/check/mp-probe.ts && node tools/check/mp-check.ts"
+    "check:mp": "node tools/check/mp-probe.ts && node tools/check/mp-check.ts",
+    "package": "npm run build && cd Echo-Tag-Frontend/dist && rm -f ../../echo-tag-poki.zip && zip -qr ../../echo-tag-poki.zip . -x '*.map' -x '*.br' -x '*.gz' && cd ../.. && echo 'echo-tag-poki.zip:' && du -h echo-tag-poki.zip"
   },
   "devDependencies": {
     "playwright": "^1.62.1",

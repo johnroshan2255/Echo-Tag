@@ -4,6 +4,13 @@ import { Container, Graphics } from 'pixi.js'
 import {
   cosmeticRng,
   FLOOR,
+  FLOOR_CRACK,
+  FLOOR_CRACK_LIT,
+  FLOOR_CRACKS_PER_MAP,
+  RUBBLE,
+  RUBBLE_DARK,
+  WALL_CRACK,
+  WALL_CRACKS_PER_MAP,
   WEB_ALPHA,
   WEB_COLOR,
   WEBS_PER_MAP,
@@ -79,6 +86,37 @@ export const layoutArena = (layer: ArenaLayer, map: GameMap): void => {
     const y = ty * MAP_TILE + rng() * MAP_TILE
     const s = rng() < 0.25 ? 5 : 3
     g.rect(x, y, s, s).fill({ color: FLOOR_SPECKLE, alpha: 0.5 + rng() * 0.5 })
+  }
+
+  // Floor cracks: jagged seeded polylines wandering across the open ground, each with a
+  // pale catch-light along one lip so it reads as a fissure, not a scribble.
+  for (let i = 0; i < FLOOR_CRACKS_PER_MAP; i++) {
+    const tile = map.openTiles[Math.floor(rng() * map.openTiles.length)]!
+    let x = (tile % MAP_TILES_X) * MAP_TILE + rng() * MAP_TILE
+    let y = ((tile / MAP_TILES_X) | 0) * MAP_TILE + rng() * MAP_TILE
+    let a = rng() * Math.PI * 2
+    const segs = 3 + ((rng() * 3) | 0)
+    g.moveTo(x, y)
+    const litPts: number[] = [x, y]
+    for (let k = 0; k < segs; k++) {
+      a += (rng() - 0.5) * 1.6
+      x += Math.cos(a) * (26 + rng() * 34)
+      y += Math.sin(a) * (26 + rng() * 34)
+      g.lineTo(x, y)
+      litPts.push(x, y)
+    }
+    g.stroke({ color: FLOOR_CRACK, alpha: 0.95, width: 3.5 })
+    g.moveTo(litPts[0]! + 2, litPts[1]! + 2)
+    for (let k = 2; k < litPts.length; k += 2) g.lineTo(litPts[k]! + 2, litPts[k + 1]! + 2)
+    g.stroke({ color: FLOOR_CRACK_LIT, alpha: 0.28, width: 1.5 })
+    // Rubble scatter near one end of the deeper cracks.
+    if (rng() < 0.55) {
+      for (let r = 0; r < 3 + ((rng() * 3) | 0); r++) {
+        const sz = 4 + rng() * 7
+        g.rect(x + (rng() - 0.5) * 46, y + (rng() - 0.5) * 46, sz, sz)
+          .fill({ color: rng() < 0.5 ? RUBBLE : RUBBLE_DARK, alpha: 0.8 })
+      }
+    }
   }
 
   // Rugs go under everything that stands on the floor.
@@ -233,18 +271,86 @@ export const layoutArena = (layer: ArenaLayer, map: GameMap): void => {
     }
   }
 
-  // Mossy rims: a lit strip on every hedge face that touches floor — and only those.
-  // (Outlining whole wall rects striped every vertical wall; testing each face against its
-  // neighbour puts light exactly on the walkable boundary, the line the player needs.)
+  // Eroded edges: where a wall meets floor, the old build drew one clean moss strip and
+  // the whole map read as CAD. Now each edge is four seeded segments of varying thickness,
+  // with the wall itself occasionally slumping a few units outward — so every silhouette
+  // is ragged. The erosion never exceeds ~8 units past the tile line: collision stays on
+  // the grid, and nothing ever looks open that is not.
+  const edge = (x: number, y: number, horizontal: boolean, outward: number): void => {
+    const SEGS = 4
+    for (let k = 0; k < SEGS; k++) {
+      const len = MAP_TILE / SEGS
+      const thick = 3 + rng() * 5
+      const slump = rng() < 0.3 ? (2 + rng() * 6) * outward : 0
+      if (horizontal) {
+        const sy = outward > 0 ? y - thick + slump : y - slump
+        g.rect(x + k * len, sy, len + 1, thick + Math.abs(slump)).fill({ color: WALL_FILL })
+        g.rect(x + k * len, outward > 0 ? sy : y + thick - slump - 2, len + 1, 2.5 + rng() * 2).fill({ color: WALL_RIM, alpha: 0.7 + rng() * 0.25 })
+      } else {
+        const sx = outward > 0 ? x - thick + slump : x - slump
+        g.rect(sx, y + k * len, thick + Math.abs(slump), len + 1).fill({ color: WALL_FILL })
+        g.rect(outward > 0 ? sx : x + thick - slump - 2, y + k * len, 2.5 + rng() * 2, len + 1).fill({ color: WALL_RIM, alpha: 0.7 + rng() * 0.25 })
+      }
+    }
+  }
+
   for (let ty = 0; ty < MAP_TILES_Y; ty++) {
     for (let tx = 0; tx < MAP_TILES_X; tx++) {
       if (walls[ty * MAP_TILES_X + tx] !== TILE_WALL) continue // furniture carries its own wood edges
       const x = tx * MAP_TILE
       const y = ty * MAP_TILE
-      if (!isWallAt(tx, ty - 1)) g.rect(x, y, MAP_TILE, RIM_W).fill({ color: WALL_RIM, alpha: 0.85 })
-      if (!isWallAt(tx, ty + 1)) g.rect(x, y + MAP_TILE - RIM_W, MAP_TILE, RIM_W).fill({ color: WALL_RIM, alpha: 0.85 })
-      if (!isWallAt(tx - 1, ty)) g.rect(x, y, RIM_W, MAP_TILE).fill({ color: WALL_RIM, alpha: 0.85 })
-      if (!isWallAt(tx + 1, ty)) g.rect(x + MAP_TILE - RIM_W, y, RIM_W, MAP_TILE).fill({ color: WALL_RIM, alpha: 0.85 })
+      if (!isWallAt(tx, ty - 1)) edge(x, y, true, -1)
+      if (!isWallAt(tx, ty + 1)) edge(x, y + MAP_TILE, true, 1)
+      if (!isWallAt(tx - 1, ty)) edge(x, y, false, -1)
+      if (!isWallAt(tx + 1, ty)) edge(x + MAP_TILE, y, false, 1)
+    }
+  }
+
+  // Crumbled corners: every convex wall corner (wall tile whose two neighbours on one
+  // diagonal are both open) has visibly shed material — a floor-coloured bite out of the
+  // block with rubble spilled beside it. This is what kills the square-room read hardest:
+  // no room has four intact corners any more.
+  for (let ty = 0; ty < MAP_TILES_Y; ty++) {
+    for (let tx = 0; tx < MAP_TILES_X; tx++) {
+      if (walls[ty * MAP_TILES_X + tx] !== TILE_WALL) continue
+      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+        if (isWallAt(tx + dx, ty) || isWallAt(tx, ty + dy)) continue
+        const cx = (tx + (dx < 0 ? 0 : 1)) * MAP_TILE
+        const cy = (ty + (dy < 0 ? 0 : 1)) * MAP_TILE
+        const bite = 8 + rng() * 12
+        // The bite: floor colour eaten into the wall corner, stepped so it reads as broken
+        // masonry rather than a rounded fillet.
+        g.rect(cx - (dx < 0 ? 0 : bite), cy - (dy < 0 ? 0 : bite), bite, bite).fill({ color: FLOOR })
+        const half = bite * 0.55
+        g.rect(cx - (dx < 0 ? -bite : bite + half) + (dx < 0 ? 0 : 0), cy - (dy < 0 ? 0 : half), half, half)
+          .fill({ color: FLOOR, alpha: 0.9 })
+        // Spilled blocks just outside the corner.
+        for (let r = 0; r < 2 + ((rng() * 3) | 0); r++) {
+          const sz = 5 + rng() * 8
+          g.rect(cx - dx * (4 + rng() * 22) - sz / 2, cy - dy * (4 + rng() * 22) - sz / 2, sz, sz)
+            .fill({ color: rng() < 0.4 ? WALL_RIM : RUBBLE, alpha: 0.75 })
+        }
+      }
+    }
+  }
+
+  // Wall cracks: pale fissures across the hedge/stone mass itself.
+  {
+    const wallTiles: number[] = []
+    for (let i = 0; i < walls.length; i++) if (walls[i] === TILE_WALL) wallTiles.push(i)
+    for (let i = 0; i < WALL_CRACKS_PER_MAP && wallTiles.length > 0; i++) {
+      const t = wallTiles[Math.floor(rng() * wallTiles.length)]!
+      let x = (t % MAP_TILES_X) * MAP_TILE + 10 + rng() * (MAP_TILE - 20)
+      let y = ((t / MAP_TILES_X) | 0) * MAP_TILE + 10 + rng() * (MAP_TILE - 20)
+      let a = rng() * Math.PI * 2
+      g.moveTo(x, y)
+      for (let k = 0; k < 3; k++) {
+        a += (rng() - 0.5) * 1.4
+        x += Math.cos(a) * (12 + rng() * 16)
+        y += Math.sin(a) * (12 + rng() * 16)
+        g.lineTo(x, y)
+      }
+      g.stroke({ color: WALL_CRACK, alpha: 0.9, width: 2.5 })
     }
   }
 }

@@ -15,6 +15,7 @@ opinions — if it isn't checkable, it isn't a gate.
 | 2.8 | Wardrobes (hide + keys) & windows | 1 d | ✅ done |
 | 4 | Server authority & multiplayer menu | 2 d | ✅ done (pulled forward; prediction-lite) |
 | 3 | Input (touch joystick) + horror dressing | 1 d | ✅ done |
+| 5.5 | Decay pass + Poki deployability | 0.5 d | ✅ done |
 | 4 | Server authority | 2 d | |
 | 5 | Prediction & smoothing | 2 d | |
 | 6 | Bots & matchmaking | 1.5 d | |
@@ -302,6 +303,15 @@ check's mobile viewports synthesize touch drags and require real movement. Traps
 [ADR 0010](adr/0010-mobile-and-horror.md).
 
 Remaining input work folds into Phase 7: `gameplayStart()` on first input for Poki.
+
+## Phase 5.5 — Decay + Poki deployability ✅  (user direction)
+
+Cracked floors and walls, eroded edges, crumbled corners — no room keeps four intact
+corners, which is what finally kills the square-room read — all drawing, all on the tile
+grid, erosion capped at ~8wu so visuals never lie about collision. And the Poki layer:
+`npm run package` produces a ~180KB relative-path zip, the SDK contract is wired end to end
+(gameplayStart strictly on first input), and `docs/POKI_DEPLOY.md` carries the submission
+checklist. [ADR 0011](adr/0011-decay-and-poki-deploy.md).
 
 - `input/detect.ts` — pointer-type + coarse-media detection. Keyboard and touch stay live
   simultaneously (iPad with a keyboard case must work without a mode switch).

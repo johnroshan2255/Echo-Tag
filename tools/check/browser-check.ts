@@ -154,7 +154,14 @@ try {
     // game is required to boot without it.
     const errors: string[] = []
     const isSdkNoise = (t: string): boolean =>
-      t.includes('poki') || t.includes('game-cdn') || t.includes('ERR_NAME_NOT_RESOLVED')
+      t.includes('poki') ||
+      t.includes('game-cdn') ||
+      t.includes('ERR_NAME_NOT_RESOLVED') ||
+      // The live Poki SDK initialises inside the check and grumbles about the http test
+      // origin: COOP requires https, and its ad frames are sandboxed about:blank documents.
+      // Both are environmental to 127.0.0.1 and vanish on real (https) hosting.
+      t.includes('Cross-Origin-Opener-Policy') ||
+      t.includes("sandboxed and the 'allow-scripts'")
     page.on('console', (m: ConsoleMessage) => {
       const t = m.text()
       // The generic resource-load line is redundant with the response/requestfailed
@@ -167,12 +174,15 @@ try {
       if (!isSdkNoise(String(e))) errors.push(`pageerror: ${e.message}`)
     })
     // A bare "Failed to load resource" console line does not say *which* resource, which
-    // makes a 404 needlessly hard to chase. Record the URL instead.
+    // makes a 404 needlessly hard to chase. Record the URL instead — but only for OUR
+    // origin: the live Poki SDK pulls an ad stack whose third-party calls abort freely in
+    // a test environment, and none of that is ours to assert on.
+    const ours = (u: string): boolean => u.startsWith(URL)
     page.on('requestfailed', (r) => {
-      if (!isSdkNoise(r.url())) errors.push(`request failed: ${r.url()} (${r.failure()?.errorText ?? 'unknown'})`)
+      if (ours(r.url())) errors.push(`request failed: ${r.url()} (${r.failure()?.errorText ?? 'unknown'})`)
     })
     page.on('response', (r) => {
-      if (r.status() >= 400 && !isSdkNoise(r.url())) errors.push(`HTTP ${r.status()}: ${r.url()}`)
+      if (r.status() >= 400 && ours(r.url())) errors.push(`HTTP ${r.status()}: ${r.url()}`)
     })
 
     const t0 = Date.now()

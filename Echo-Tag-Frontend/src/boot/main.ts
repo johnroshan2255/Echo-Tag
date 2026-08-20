@@ -1,4 +1,5 @@
 import { drawPreview } from './preview.ts'
+import { pokiInit, pokiLoadingFinished } from '../platform/poki.ts'
 
 /**
  * The boot chunk.
@@ -144,3 +145,7 @@ addEventListener('keydown', (e) => {
 // A marker the headless smoke check waits on, and a cheap manual sanity signal.
 document.documentElement.dataset.boot = 'ready'
 performance.mark('echo-tag:boot-ready')
+
+// Poki: the menu IS the loaded state — the player can interact right now. gameplayStart
+// deliberately does NOT happen here; it fires on the first in-round input (game/index.ts).
+void pokiInit().then(pokiLoadingFinished)

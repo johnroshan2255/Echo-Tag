@@ -35,6 +35,8 @@ export interface AudioDirector {
   onTag(world: World, localSlot: number, from: number, to: number): void
   /** A bat flock just launched — wings, panned at random. */
   flutter(): void
+  /** Hard mute/unmute — ad breaks require silence for their whole duration. */
+  setMuted(muted: boolean): void
   destroy(): void
 }
 
@@ -175,6 +177,10 @@ export const createAudioDirector = (): AudioDirector => {
 
     flutter(): void {
       batFlutter(engine, Math.random() * 1.6 - 0.8)
+    },
+
+    setMuted(muted: boolean): void {
+      setMuted(engine, muted)
     },
 
     destroy(): void {

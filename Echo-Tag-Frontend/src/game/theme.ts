@@ -67,6 +67,19 @@ export const LANTERN_TINT = 0xffd9a3
 export const LANTERN_RADIUS = 420 // world units; slightly larger than VISION_CLEAR so light feathers into fog
 export const LANTERN_ALPHA = 0.16
 
+// ── Decay ──
+// The maze is old and broken: cracked floors, eroded wall edges, rubble where corners have
+// crumbled. All of it is drawing — collision stays on the clean tile grid, and the visual
+// erosion never reaches deeper than ~8 world units into a walkway (PLAYER_RADIUS is 18, so
+// nothing ever looks passable that is not, or blocked that is not).
+export const FLOOR_CRACK = 0x17131f
+export const FLOOR_CRACK_LIT = 0x3d3552 // a faint catch-light along one lip of the crack
+export const WALL_CRACK = 0x0a1410
+export const RUBBLE = 0x37304a
+export const RUBBLE_DARK = 0x241f33
+export const FLOOR_CRACKS_PER_MAP = 26
+export const WALL_CRACKS_PER_MAP = 30
+
 // ── Horror dressing ──
 // The Koira register: cuteness against the unknown dark. Webs and spiders make the maze
 // feel long-abandoned; bats make the dark feel inhabited. None of it touches gameplay.
