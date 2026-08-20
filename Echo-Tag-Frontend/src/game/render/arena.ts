@@ -1,7 +1,24 @@
-import { MAP_TILE, MAP_TILES_X, MAP_TILES_Y, MAP_W, MAP_H } from '@echo-tag/shared/constants'
-import type { GameMap } from '@echo-tag/shared'
+import { MAP_TILE, MAP_TILES_X, MAP_TILES_Y, MAP_W, MAP_H, TILE_FURNITURE, TILE_WALL } from '@echo-tag/shared/constants'
+import { Decor, type GameMap } from '@echo-tag/shared'
 import { Container, Graphics } from 'pixi.js'
-import { cosmeticRng, FLOOR, FLOOR_SPECKLE, SPECKLES_PER_MAP, WALL_FILL, WALL_RIM, WALL_TUFT } from '../theme.ts'
+import {
+  cosmeticRng,
+  FLOOR,
+  FLOOR_SPECKLE,
+  LAMP_HEAD,
+  LAMP_POST,
+  PLANT_LEAF,
+  PLANT_POT,
+  RUG_BORDER,
+  RUG_FILL,
+  SPECKLES_PER_MAP,
+  WALL_FILL,
+  WALL_RIM,
+  WALL_TUFT,
+  WOOD_DARK,
+  WOOD_FILL,
+  WOOD_GRAIN,
+} from '../theme.ts'
 
 /**
  * The world, drawn cozy (ADR 0006).
@@ -56,22 +73,73 @@ export const layoutArena = (layer: ArenaLayer, map: GameMap): void => {
     g.rect(x, y, s, s).fill({ color: FLOOR_SPECKLE, alpha: 0.5 + rng() * 0.5 })
   }
 
+  // Rugs go under everything that stands on the floor.
+  const decor = map.decor
+  for (let i = 0; i < decor.length; i += 3) {
+    if (decor[i] !== Decor.Rug) continue
+    const x = decor[i + 1]! * MAP_TILE
+    const y = decor[i + 2]! * MAP_TILE
+    const rw = MAP_TILE * 3
+    const rh = MAP_TILE * 2
+    g.rect(x, y, rw, rh).fill({ color: RUG_FILL, alpha: 0.55 })
+    g.rect(x, y, rw, rh).stroke({ color: RUG_BORDER, alpha: 0.6, width: 5 })
+    g.rect(x + 14, y + 14, rw - 28, rh - 28).stroke({ color: RUG_BORDER, alpha: 0.35, width: 3 })
+  }
+
   // Hedge fill: merge horizontal runs into single rects — fewer commands, no seams.
   for (let ty = 0; ty < MAP_TILES_Y; ty++) {
     for (let tx = 0; tx < MAP_TILES_X; tx++) {
-      if (walls[ty * MAP_TILES_X + tx] === 0) continue
+      if (walls[ty * MAP_TILES_X + tx] !== TILE_WALL) continue
       let run = 1
-      while (tx + run < MAP_TILES_X && walls[ty * MAP_TILES_X + tx + run] === 1) run++
+      while (tx + run < MAP_TILES_X && walls[ty * MAP_TILES_X + tx + run] === TILE_WALL) run++
       g.rect(tx * MAP_TILE, ty * MAP_TILE, run * MAP_TILE, MAP_TILE).fill({ color: WALL_FILL })
       tx += run - 1
     }
   }
 
-  // Leafy clumps inside the hedges: a few soft lighter blobs per wall tile. Kept away from
-  // tile edges so they never blur the collision boundary.
+  // Furniture tiles: solid like walls, but read as built wooden things — tabletop fill,
+  // plank grain, and a dark base shadow so they sit on the floor instead of floating.
   for (let ty = 0; ty < MAP_TILES_Y; ty++) {
     for (let tx = 0; tx < MAP_TILES_X; tx++) {
-      if (walls[ty * MAP_TILES_X + tx] === 0) continue
+      if (walls[ty * MAP_TILES_X + tx] !== TILE_FURNITURE) continue
+      let run = 1
+      while (tx + run < MAP_TILES_X && walls[ty * MAP_TILES_X + tx + run] === TILE_FURNITURE) run++
+      const x = tx * MAP_TILE
+      const y = ty * MAP_TILE
+      const wpx = run * MAP_TILE
+      g.rect(x + 4, y + MAP_TILE - 12, wpx - 8, 10).fill({ color: WOOD_DARK, alpha: 0.8 })
+      g.rect(x + 6, y + 6, wpx - 12, MAP_TILE - 16).fill({ color: WOOD_FILL })
+      g.rect(x + 6, y + 6, wpx - 12, 6).fill({ color: WOOD_GRAIN })
+      for (let px = x + 22; px < x + wpx - 14; px += 26) {
+        g.rect(px, y + 14, 3, MAP_TILE - 26).fill({ color: WOOD_DARK, alpha: 0.5 })
+      }
+      tx += run - 1
+    }
+  }
+
+  // Standing props: plants and lamp bases. (Lamp light pools are additive sprites in the
+  // fx layer, placed by setLampsFromMap — a Graphics can't blend additively per-shape.)
+  for (let i = 0; i < decor.length; i += 3) {
+    const cx = (decor[i + 1]! + 0.5) * MAP_TILE
+    const cy = (decor[i + 2]! + 0.5) * MAP_TILE
+    if (decor[i] === Decor.Plant) {
+      g.rect(cx - 12, cy + 2, 24, 18).fill({ color: PLANT_POT })
+      g.rect(cx - 17, cy - 16, 14, 16).fill({ color: PLANT_LEAF })
+      g.rect(cx - 4, cy - 24, 13, 22).fill({ color: PLANT_LEAF, alpha: 0.85 })
+      g.rect(cx + 6, cy - 12, 11, 13).fill({ color: PLANT_LEAF, alpha: 0.7 })
+    } else if (decor[i] === Decor.Lamp) {
+      g.rect(cx - 4, cy - 26, 8, 40).fill({ color: LAMP_POST })
+      g.rect(cx - 12, cy + 12, 24, 6).fill({ color: LAMP_POST })
+      g.rect(cx - 10, cy - 40, 20, 16).fill({ color: LAMP_HEAD, alpha: 0.95 })
+    }
+  }
+
+  // Leafy clumps inside the hedges: a few soft lighter blobs per wall tile. Kept away from
+  // tile edges so they never blur the collision boundary. Hedge tiles only — an earlier
+  // pass grew leaves on the furniture.
+  for (let ty = 0; ty < MAP_TILES_Y; ty++) {
+    for (let tx = 0; tx < MAP_TILES_X; tx++) {
+      if (walls[ty * MAP_TILES_X + tx] !== TILE_WALL) continue
       const n = 2 + ((rng() * 2) | 0)
       for (let k = 0; k < n; k++) {
         const s = 10 + rng() * 16
@@ -87,7 +155,7 @@ export const layoutArena = (layer: ArenaLayer, map: GameMap): void => {
   // neighbour puts light exactly on the walkable boundary, the line the player needs.)
   for (let ty = 0; ty < MAP_TILES_Y; ty++) {
     for (let tx = 0; tx < MAP_TILES_X; tx++) {
-      if (walls[ty * MAP_TILES_X + tx] === 0) continue
+      if (walls[ty * MAP_TILES_X + tx] !== TILE_WALL) continue // furniture carries its own wood edges
       const x = tx * MAP_TILE
       const y = ty * MAP_TILE
       if (!isWallAt(tx, ty - 1)) g.rect(x, y, MAP_TILE, RIM_W).fill({ color: WALL_RIM, alpha: 0.85 })

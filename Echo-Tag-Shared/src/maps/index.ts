@@ -1,4 +1,4 @@
-import { MAP_COUNT, MAP_TILE, MAP_TILES_X, MAP_TILES_Y, SPAWNS_PER_MAP } from '../constants.ts'
+import { MAP_COUNT, MAP_TILE, MAP_TILES_X, MAP_TILES_Y, MAX_DOORS, SPAWNS_PER_MAP, TILE_FURNITURE } from '../constants.ts'
 
 /**
  * The four maps.
@@ -19,15 +19,31 @@ import { MAP_COUNT, MAP_TILE, MAP_TILES_X, MAP_TILES_Y, SPAWNS_PER_MAP } from '.
  *     which matters doubly here because echoes make temporary walls of their own
  */
 
+/** Decorative, non-colliding furnishings. Values for `decor` triples. */
+export const Decor = {
+  Rug: 0, // 3x2 tiles of soft carpet, anchored at its top-left tile
+  Lamp: 1, // a standing lamp; the renderer gives it a warm light pool
+  Plant: 2, // a potted plant
+} as const
+export type Decor = (typeof Decor)[keyof typeof Decor]
+
 export interface GameMap {
   readonly index: number
   readonly name: string
-  /** 1 = wall, 0 = open. Length MAP_TILES_X * MAP_TILES_Y, row-major. */
+  /** TILE_OPEN / TILE_WALL / TILE_FURNITURE. Non-zero is solid. Row-major. */
   readonly walls: Uint8Array
   /** Spawn tiles as (tx, ty) pairs, length SPAWNS_PER_MAP * 2. */
   readonly spawns: Int16Array
-  /** Indices of open tiles, for deterministic open-space sampling. */
+  /** Indices of walkable tiles, for deterministic open-space sampling. */
   readonly openTiles: Int32Array
+  /**
+   * Doors as (tx, ty, axis) triples, at most MAX_DOORS. A door fills the two-tile doorway
+   * starting at (tx, ty): axis 0 spans (tx,ty)+(tx+1,ty); axis 1 spans (tx,ty)+(tx,ty+1).
+   * Both tiles must be open — a door lives in a gap, its leaves retract into the walls.
+   */
+  readonly doors: Int16Array
+  /** Decorative props as (type, tx, ty) triples. Never collide, never networked. */
+  readonly decor: Int16Array
 }
 
 const TX = MAP_TILES_X
@@ -60,17 +76,45 @@ const clear = (w: Uint8Array, x0: number, y0: number, x1 = x0, y1 = y0): void =>
 const hwall = (w: Uint8Array, y: number, x0: number, x1: number): void => rect(w, x0, y, x1, y)
 const vwall = (w: Uint8Array, x: number, y0: number, y1: number): void => rect(w, x, y0, x, y1)
 
-const finish = (index: number, name: string, walls: Uint8Array, spawns: number[]): GameMap => {
+/** Solid furniture: blocks movement like a wall, renders as wood. */
+const furn = (w: Uint8Array, x0: number, y0: number, x1 = x0, y1 = y0): void => {
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) w[y * TX + x] = TILE_FURNITURE
+}
+
+const finish = (
+  index: number,
+  name: string,
+  walls: Uint8Array,
+  spawns: number[],
+  doors: number[] = [],
+  decor: number[] = [],
+): GameMap => {
   if (spawns.length !== SPAWNS_PER_MAP * 2) {
     throw new Error(`${name}: ${spawns.length / 2} spawns, need ${SPAWNS_PER_MAP}`)
   }
+  if (doors.length / 3 > MAX_DOORS) throw new Error(`${name}: ${doors.length / 3} doors, max ${MAX_DOORS}`)
   const open: number[] = []
   for (let i = 0; i < walls.length; i++) if (walls[i] === 0) open.push(i)
   for (let s = 0; s < spawns.length; s += 2) {
     const t = spawns[s + 1]! * TX + spawns[s]!
-    if (walls[t] === 1) throw new Error(`${name}: spawn ${s / 2} at (${spawns[s]},${spawns[s + 1]}) is inside a wall`)
+    if (walls[t] !== 0) throw new Error(`${name}: spawn ${s / 2} at (${spawns[s]},${spawns[s + 1]}) is not walkable`)
   }
-  return { index, name, walls, spawns: new Int16Array(spawns), openTiles: new Int32Array(open) }
+  for (let d = 0; d < doors.length; d += 3) {
+    const [tx, ty, axis] = [doors[d]!, doors[d + 1]!, doors[d + 2]!]
+    const t2 = axis === 0 ? ty * TX + tx + 1 : (ty + 1) * TX + tx
+    if (walls[ty * TX + tx] !== 0 || walls[t2] !== 0) {
+      throw new Error(`${name}: door ${d / 3} at (${tx},${ty}) is not in an open doorway`)
+    }
+  }
+  return {
+    index,
+    name,
+    walls,
+    spawns: new Int16Array(spawns),
+    openTiles: new Int32Array(open),
+    doors: new Int16Array(doors),
+    decor: new Int16Array(decor),
+  }
 }
 
 // ── Map 0: FOUNDRY — four big rooms joined by wide halls ──────────────────────
@@ -90,10 +134,24 @@ const foundry = (): GameMap => {
   // Corner nooks for drama.
   rect(w, 4, 3, 6, 4); rect(w, 33, 3, 35, 4)
   rect(w, 4, 17, 6, 18); rect(w, 33, 17, 35, 18)
+  // Furnishing: long tables in the side halls, crates around the central block.
+  furn(w, 6, 10, 7, 10)
+  furn(w, 32, 11, 33, 11)
+  furn(w, 16, 6); furn(w, 23, 15)
+  furn(w, 2, 5); furn(w, 37, 16)
   return finish(0, 'Foundry', w, [
     2, 2, 37, 2, 2, 19, 37, 19, // far corners
     19, 2, 19, 19, 2, 11, 37, 11, // edge midpoints
     14, 10, 25, 11, 9, 10, 30, 11, // around the central block
+  ], [
+    // Doors on the four quadrant doorways: the ambush alarm bells of this map.
+    12, 3, 1, 27, 3, 1, 12, 17, 1, 27, 17, 1,
+  ], [
+    Decor.Rug, 5, 9, Decor.Rug, 31, 10, Decor.Rug, 18, 2,
+    Decor.Lamp, 13, 2, Decor.Lamp, 26, 19, Decor.Lamp, 2, 12, Decor.Lamp, 37, 9,
+    Decor.Lamp, 16, 9, Decor.Lamp, 23, 12,
+    Decor.Plant, 1, 1, Decor.Plant, 38, 1, Decor.Plant, 1, 20, Decor.Plant, 38, 20,
+    Decor.Plant, 7, 3, Decor.Plant, 32, 18,
   ])
 }
 
@@ -105,10 +163,17 @@ const pillars = (): GameMap => {
       rect(w, gx, gy, gx + 1, Math.min(gy + 1, TY - 2))
     }
   }
+  // The courtyard map: no doors, benches along the mid lanes instead.
+  furn(w, 12, 11); furn(w, 27, 11)
   return finish(1, 'Pillars', w, [
     2, 2, 37, 2, 2, 19, 37, 19,
     12, 6, 27, 6, 12, 16, 27, 16,
     20, 2, 20, 20, 2, 11, 37, 11,
+  ], [], [
+    Decor.Lamp, 6, 5, Decor.Lamp, 33, 5, Decor.Lamp, 6, 15, Decor.Lamp, 33, 15,
+    Decor.Lamp, 20, 10,
+    Decor.Plant, 3, 2, Decor.Plant, 36, 2, Decor.Plant, 3, 19, Decor.Plant, 36, 19,
+    Decor.Plant, 19, 5, Decor.Plant, 20, 16,
   ])
 }
 
@@ -126,10 +191,18 @@ const serpentine = (): GameMap => {
   clear(w, 23, 8, 24, 8)
   clear(w, 15, 12, 16, 12)
   clear(w, 23, 16, 24, 16)
+  // Crates tucked at lane ends, where a chase has to commit.
+  furn(w, 36, 3); furn(w, 2, 6, 2, 7); furn(w, 36, 10, 36, 11); furn(w, 2, 14)
   return finish(2, 'Serpentine', w, [
     2, 2, 37, 2, 2, 19, 37, 19,
     35, 6, 4, 10, 35, 14, 10, 18,
     19, 2, 19, 6, 19, 10, 19, 18,
+  ], [
+    // Doors on the four shortcuts: taking the fast way through announces you.
+    15, 4, 0, 23, 8, 0, 15, 12, 0, 23, 16, 0,
+  ], [
+    Decor.Lamp, 32, 2, Decor.Lamp, 7, 6, Decor.Lamp, 32, 10, Decor.Lamp, 7, 14, Decor.Lamp, 32, 18,
+    Decor.Plant, 1, 3, Decor.Plant, 38, 6, Decor.Plant, 1, 11, Decor.Plant, 38, 14, Decor.Plant, 1, 18,
   ])
 }
 
@@ -148,10 +221,21 @@ const warrens = (): GameMap => {
   clear(w, 3, 6, 4, 6); clear(w, 11, 6, 12, 6); clear(w, 19, 6, 20, 6); clear(w, 27, 6, 28, 6); clear(w, 35, 6, 36, 6)
   clear(w, 3, 11, 4, 11); clear(w, 11, 11, 12, 11); clear(w, 19, 11, 20, 11); clear(w, 27, 11, 28, 11); clear(w, 35, 11, 36, 11)
   clear(w, 3, 16, 4, 16); clear(w, 11, 16, 12, 16); clear(w, 19, 16, 20, 16); clear(w, 27, 16, 28, 16); clear(w, 35, 16, 36, 16)
+  // The indoor map: beds, tables and chests scattered through the chambers.
+  furn(w, 3, 3, 4, 3); furn(w, 35, 4); furn(w, 12, 2, 13, 2)
+  furn(w, 6, 13); furn(w, 28, 9, 29, 9); furn(w, 18, 13, 18, 14); furn(w, 34, 18)
   return finish(3, 'Warrens', w, [
     3, 2, 36, 2, 3, 19, 36, 19,
     12, 4, 28, 4, 12, 18, 28, 18,
     20, 9, 20, 13, 4, 9, 36, 13,
+  ], [
+    // Doors on six of the chamber doorways — the map where you live by your ears.
+    8, 3, 1, 24, 3, 1, 16, 8, 1, 32, 12, 1, 11, 11, 0, 27, 6, 0,
+  ], [
+    Decor.Rug, 10, 8, Decor.Rug, 25, 13, Decor.Rug, 18, 2,
+    Decor.Lamp, 9, 2, Decor.Lamp, 30, 3, Decor.Lamp, 5, 17, Decor.Lamp, 33, 14,
+    Decor.Lamp, 21, 10,
+    Decor.Plant, 1, 1, Decor.Plant, 38, 20, Decor.Plant, 17, 12, Decor.Plant, 25, 1,
   ])
 }
 
@@ -159,9 +243,19 @@ export const MAPS: readonly GameMap[] = [foundry(), pillars(), serpentine(), war
 
 if (MAPS.length !== MAP_COUNT) throw new Error('MAP_COUNT out of sync with MAPS')
 
-/** Tile lookup. Out-of-bounds counts as wall, so nothing can ever leave the grid. */
+/** Solid lookup (wall or furniture). Out-of-bounds counts as solid. */
 export const isWall = (map: GameMap, tx: number, ty: number): boolean =>
-  tx < 0 || ty < 0 || tx >= MAP_TILES_X || ty >= MAP_TILES_Y || map.walls[ty * MAP_TILES_X + tx] === 1
+  tx < 0 || ty < 0 || tx >= MAP_TILES_X || ty >= MAP_TILES_Y || map.walls[ty * MAP_TILES_X + tx] !== 0
+
+/** World-space centre of a door (the midpoint of its two tiles). */
+export const doorCenterX = (map: GameMap, d: number): number => {
+  const tx = map.doors[d * 3]!
+  return map.doors[d * 3 + 2] === 0 ? (tx + 1) * MAP_TILE : (tx + 0.5) * MAP_TILE
+}
+export const doorCenterY = (map: GameMap, d: number): number => {
+  const ty = map.doors[d * 3 + 1]!
+  return map.doors[d * 3 + 2] === 1 ? (ty + 1) * MAP_TILE : (ty + 0.5) * MAP_TILE
+}
 
 /** World-space centre of a tile. */
 export const tileCenterX = (tx: number): number => (tx + 0.5) * MAP_TILE

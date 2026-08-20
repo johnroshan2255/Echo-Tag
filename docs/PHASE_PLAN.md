@@ -11,6 +11,7 @@ opinions — if it isn't checkable, it isn't a gate.
 | 2 | Renderer & feel | 3 d | ✅ done |
 | 2.5 | World pivot: 4 maps + follow camera | 1 d | ✅ done |
 | 2.6 | Fog of war + cozy dusk retheme | 0.5 d | ✅ done |
+| 2.7 | Rooms, doors & the soundscape | 1 d | ✅ done |
 | 3 | Input | 1 d | next |
 | 4 | Server authority | 2 d | |
 | 5 | Prediction & smoothing | 2 d | |
@@ -246,6 +247,24 @@ Verification lesson worth keeping: the screenshot viewer's downscaling *invented
 player inside the fog — twice — and an hour went to chasing it. The live-page pixel probe
 and a probe of the actual PNG both showed nothing above fog anywhere. For visibility
 questions: measure pixels, never squint at a scaled screenshot.
+
+## Phase 2.7 — Rooms, doors & the soundscape ✅  (user direction)
+
+Owner: furnish the rooms, add doors with sound, make it scary-cozy — "check Koira." Koira's
+defining trait is being musically driven, so the audio is the load-bearing half of this
+phase. Built: furniture as a solid tile type + decor props (rugs, plants, lamps with light
+pools), doors as deterministic shared-sim objects (auto-open on approach, block when shut,
+never close on an occupant, 14 across three maps), and an entirely synthesised WebAudio
+soundscape — door creaks audible at twice vision range, distance-panned footsteps, a
+proximity heartbeat, a tag sting, and a breathing ambient bed. Details in
+[ADR 0007](adr/0007-rooms-doors-sound.md).
+
+**Gate:** 58/58 tests (doors: opens/blocks/passes/never-traps; maps re-validated with
+furniture), sim still allocation-free, 7 of 8 draw calls, 113.2KB brotli, three-viewport
+browser check green, furnished-room and door crops reviewed at 1:1. ✅
+
+The dead-end map test earned its keep again: the first furnishing pass put a bed in
+Warrens that sealed a one-exit pocket, caught before the first render.
 
 ## Phase 3 — Input `~1 day`  ← next
 

@@ -3,6 +3,7 @@ import {
   ECHO_SAMPLES,
   MAP_COUNT,
   MAP_H,
+  MAX_DOORS,
   MAP_TILES_X,
   MAP_W,
   MAX_PLAYERS,
@@ -42,6 +43,8 @@ export interface World {
   arenaH: number
   /** The authored map this round plays on. Swapped between rounds, never mid-round. */
   map: GameMap
+  /** Openness per door slot, 0 (shut) .. 1 (open). Indexed by the map's door order. */
+  doorOpen: Float32Array
 
   // ── Players (length MAX_PLAYERS) ──
   active: Uint8Array
@@ -100,6 +103,7 @@ export interface World {
  */
 export const setMap = (w: World, mapIndex: number): void => {
   w.map = MAPS[((mapIndex % MAP_COUNT) + MAP_COUNT) % MAP_COUNT]!
+  w.doorOpen.fill(0)
 }
 
 export const createWorld = (seed: number, mapIndex = 0): World => {
@@ -116,6 +120,7 @@ export const createWorld = (seed: number, mapIndex = 0): World => {
     arenaW,
     arenaH,
     map: MAPS[((mapIndex % MAP_COUNT) + MAP_COUNT) % MAP_COUNT]!,
+    doorOpen: new Float32Array(MAX_DOORS),
 
     active: new Uint8Array(MAX_PLAYERS),
     isBot: new Uint8Array(MAX_PLAYERS),

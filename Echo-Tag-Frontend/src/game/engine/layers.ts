@@ -2,7 +2,8 @@ import { Container, type Texture } from 'pixi.js'
 import { createArenaLayer, layoutArena, type ArenaLayer } from '../render/arena.ts'
 import { createBodyLayer, type BodyLayer } from '../render/squareBody.ts'
 import { createEchoLayer, type EchoLayer } from '../render/echoRenderer.ts'
-import { createFxLayer, type FxLayer } from '../render/fx.ts'
+import { createDoorLayer, type DoorLayer } from '../render/doors.ts'
+import { createFxLayer, setLampsFromMap, type FxLayer } from '../render/fx.ts'
 import { createIndicatorLayer, type IndicatorLayer } from '../render/indicator.ts'
 import { createAmbienceLayer, seedAmbience, type AmbienceLayer } from '../render/ambience.ts'
 import { createFogLayer, type FogLayer } from '../render/fog.ts'
@@ -31,6 +32,7 @@ export interface Layers {
   overlay: Container
   arena: ArenaLayer
   ambience: AmbienceLayer
+  doors: DoorLayer
   echoes: EchoLayer
   fx: FxLayer
   bodies: BodyLayer
@@ -45,6 +47,7 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
 
   const arena = createArenaLayer()
   const ambience = createAmbienceLayer(square)
+  const doors = createDoorLayer(square)
   const echoes = createEchoLayer(square)
   const fx = createFxLayer(glow)
   const bodies = createBodyLayer(square)
@@ -52,6 +55,7 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
   const indicator = createIndicatorLayer()
 
   worldRoot.addChild(arena.container)
+  worldRoot.addChild(doors.container) // doors are architecture: above floor, below actors
   worldRoot.addChild(ambience.container) // fireflies drift under everything that matters
   worldRoot.addChild(echoes.container)
   worldRoot.addChild(fx.container)
@@ -63,11 +67,12 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
   stage.addChild(worldRoot)
   stage.addChild(overlay)
 
-  return { stage, worldRoot, overlay, arena, ambience, echoes, fx, bodies, fog, indicator }
+  return { stage, worldRoot, overlay, arena, ambience, doors, echoes, fx, bodies, fog, indicator }
 }
 
 /** Rebuilds the map drawing and re-seeds the set dressing. Call on map change. */
 export const setLayersMap = (layers: Layers, map: GameMap): void => {
   layoutArena(layers.arena, map)
   seedAmbience(layers.ambience, map)
+  setLampsFromMap(layers.fx, map)
 }

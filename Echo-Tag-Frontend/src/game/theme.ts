@@ -22,6 +22,26 @@ export const WALL_FILL = 0x14231d // dark pine
 export const WALL_RIM = 0x4a6b52 // moss where the hedge meets walkable ground
 export const WALL_TUFT = 0x243b2e // leafy interior clumps that break up the flat fill
 
+// ── Furniture & props ──
+export const WOOD_FILL = 0x4a3527
+export const WOOD_GRAIN = 0x5d4433 // plank lines and top highlights
+export const WOOD_DARK = 0x33241a
+export const RUG_FILL = 0x59303f // worn wine-red carpet
+export const RUG_BORDER = 0x7a4457
+export const PLANT_POT = 0x54382a
+export const PLANT_LEAF = 0x41684a
+export const LAMP_POST = 0x3b3050
+export const LAMP_HEAD = 0xffd9a3
+/** Standing lamps cast their own small pool, so rooms glow faintly through the fog. */
+export const LAMP_LIGHT_RADIUS = 190
+export const LAMP_LIGHT_ALPHA = 0.15
+export const MAX_LAMPS = 12
+
+// ── Doors ──
+export const DOOR_FILL = 0x6b4a2f // warm timber, clearly not hedge and not floor
+export const DOOR_EDGE = 0x8a6440
+export const DOOR_THICKNESS = 20 // world units
+
 // ── Fog of war ──
 /** Fully clear within this many world units of you. Roughly half a room. */
 export const VISION_CLEAR = 280

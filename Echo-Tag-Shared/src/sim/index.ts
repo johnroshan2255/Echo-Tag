@@ -10,3 +10,4 @@ export {
   HISTORY_BLOB_BYTES,
 } from './echo.ts'
 export { encodeInput, inputX, inputY, inputAngle, isIdle, IDLE_INPUT } from './input.ts'
+export { updateDoors } from './door.ts'

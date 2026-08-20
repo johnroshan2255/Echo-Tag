@@ -1,5 +1,6 @@
 import {
   COLLISION_PASSES,
+  DOOR_SOLID_BELOW,
   ECHO_BODIES_PER_PLAYER,
   ECHO_GRACE_SAMPLES,
   MAP_TILE,
@@ -147,6 +148,9 @@ export const resolveWallCollisions = (w: World, slot: number): number => {
   let py = w.y[slot]!
   let contacts = 0
 
+  const doors = w.map.doors
+  const doorCount = doors.length / 3
+
   // Two passes settle a corner (two tiles pushing at once) without jitter.
   for (let pass = 0; pass < 2; pass++) {
     const before = contacts
@@ -201,6 +205,38 @@ export const resolveWallCollisions = (w: World, slot: number): number => {
         }
       }
     }
+    // Closed doors block exactly like their two wall tiles would. Openness comes from the
+    // deterministic door update, so prediction and authority always agree about whether a
+    // doorway was passable on a given tick.
+    for (let d = 0; d < doorCount; d++) {
+      if (w.doorOpen[d]! >= DOOR_SOLID_BELOW) continue
+      const base = d * 3
+      const axis = doors[base + 2]!
+      for (let leaf = 0; leaf < 2; leaf++) {
+        const tx = doors[base]! + (axis === 0 ? leaf : 0)
+        const ty = doors[base + 1]! + (axis === 1 ? leaf : 0)
+        const x0 = tx * MAP_TILE
+        const y0 = ty * MAP_TILE
+        const cx = px < x0 ? x0 : px > x0 + MAP_TILE ? x0 + MAP_TILE : px
+        const cy = py < y0 ? y0 : py > y0 + MAP_TILE ? y0 + MAP_TILE : py
+        const dx = px - cx
+        const dy = py - cy
+        const dSq = dx * dx + dy * dy
+        if (dSq >= r * r || dSq < 0.0001) continue
+        contacts++
+        const dd = Math.sqrt(dSq)
+        px += (dx / dd) * (r - dd)
+        py += (dy / dd) * (r - dd)
+        const nx = dx / dd
+        const ny = dy / dd
+        const into = w.vx[slot]! * nx + w.vy[slot]! * ny
+        if (into < 0) {
+          w.vx[slot] = w.vx[slot]! - nx * into
+          w.vy[slot] = w.vy[slot]! - ny * into
+        }
+      }
+    }
+
     if (contacts === before) break
   }
 

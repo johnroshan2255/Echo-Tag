@@ -55,7 +55,12 @@ invisible in the viewport screenshots and obvious in a crop.
 ```bash
 npm run crop              # a middling patch of arena
 npm run crop 100 80 300 200
+npm run crop 380 160 760 500 "nofog&map=0&at=13,4"   # review a spot with dev hooks
 ```
+
+Dev review hooks (URL params, inert in normal play): `?nofog` disables the fog pass,
+`?map=N` forces a map, `?at=tx,ty` teleports the local player — because fog correctly hides
+everything worth reviewing from a screenshot.
 
 `npm run verify` = `typecheck` + `test` + `bench:sim`. Run it before every commit.
 
@@ -119,11 +124,14 @@ npm run check
 On screen today: the Canvas2D preview and Play button, then the world — one of **four fixed
 maps** (Foundry, Pillars, Serpentine, Warrens, rotating each round), larger than the screen,
 seen through **fog of war**: a warm lantern pool around your avatar, roughly one room of
-visibility, and dusk beyond. Hedge-maze theme with fireflies and leaf-litter; an edge arrow
-marks the off-screen threat (It when you are prey, your nearest target when you are It — with
-fog, that arrow is load-bearing). 12 avatars of 168 squares, 180 solid echo bodies. Slot 0 is
-yours on WASD or the arrow keys; the other eleven run the shared synthetic driver (**not**
-AI — that is Phase 6).
+visibility, and dusk beyond. Rooms are furnished — rugs, tables, crates, potted plants,
+standing lamps whose light pools glow through the fog — and fourteen **doors** open as
+anyone approaches and drift shut behind them. Everything is audible: door creaks carry to
+about twice vision range (a creak in the dark means someone is moving there), footsteps pan
+with direction, your heartbeat starts when It is near and quickens as they close, and a
+breathing wind-and-drone bed sits under it all — every sound synthesised, no audio files.
+An edge arrow marks the off-screen threat. Slot 0 is yours on WASD or the arrow keys; the
+other eleven run the shared synthetic driver (**not** AI — that is Phase 6).
 
 There is no server yet. The world is local, the round loops, and nothing is networked; Phase 4
 swaps the local `World` for a server-authoritative one without touching the render path.

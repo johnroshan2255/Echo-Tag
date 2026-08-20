@@ -13,6 +13,7 @@ import {
   type World,
 } from '@echo-tag/shared'
 import { createDriverState } from '@echo-tag/shared/ai'
+import { createAudioDirector } from './audio/director.ts'
 import { WebGLRenderer } from 'pixi.js'
 import { applyCamera, createCamera, followCamera, resizeCamera, snapCamera } from './engine/camera.ts'
 import { createLayers, setLayersMap } from './engine/layers.ts'
@@ -20,6 +21,7 @@ import { advance, createTicker } from './engine/ticker.ts'
 import { fogTexture, glowTexture, squareTexture } from './engine/textures.ts'
 import { createKeyboard } from './input/keyboard.ts'
 import { renderAmbience } from './render/ambience.ts'
+import { renderDoors } from './render/doors.ts'
 import { renderEchoes } from './render/echoRenderer.ts'
 import { renderFog } from './render/fog.ts'
 import { renderFx, renderLantern } from './render/fx.ts'
@@ -41,6 +43,18 @@ import { FOG_COLOR, FOG_MAX_ALPHA, VISION_CLEAR, VISION_MAX } from './theme.ts'
  */
 
 const LOCAL_SLOT = 0
+
+/**
+ * Dev review hooks, all URL-gated and inert in normal play:
+ *   ?map=N     start on map N instead of 0
+ *   ?nofog     skip the fog pass — for judging maps and furnishing in crops
+ *   ?at=tx,ty  teleport the local player to a tile after spawn
+ * They exist because fog (correctly) hides everything worth reviewing from a screenshot.
+ */
+const devParams = new URLSearchParams(globalThis.location?.search ?? '')
+const DEV_NOFOG = devParams.has('nofog')
+const DEV_MAP = Number(devParams.get('map') ?? -1)
+const DEV_AT = devParams.get('at')?.split(',').map(Number)
 
 export interface GameHandle {
   destroy(): void
@@ -71,12 +85,18 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
   const anim = createAnimState()
   const keyboard = createKeyboard()
   const driver = createDriverState()
+  // Created here — inside the Play-click call stack — so the AudioContext starts unlocked.
+  const audio = createAudioDirector()
 
   // ── World ──
-  let mapIndex = 0
+  let mapIndex = DEV_MAP >= 0 ? DEV_MAP : 0
   const world: World = createWorld(0xec07a6, mapIndex)
   for (let i = 0; i < MAX_PLAYERS; i++) addPlayer(world, i !== LOCAL_SLOT)
   enterPhase(world, RoundPhase.Countdown)
+  if (DEV_AT && DEV_AT.length === 2) {
+    world.x[LOCAL_SLOT] = (DEV_AT[0]! + 0.5) * 80
+    world.y[LOCAL_SLOT] = (DEV_AT[1]! + 0.5) * 80
+  }
   setLayersMap(layers, world.map)
   snapCamera(cam, world.x[LOCAL_SLOT]!, world.y[LOCAL_SLOT]!)
 
@@ -123,7 +143,10 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
     syntheticDriver(world, inputs, simTick, driver, LOCAL_SLOT)
 
     const ev = stepWorld(world, inputs)
-    if (ev.tagCount > 0) onTagged(anim, ev.tagTo, performance.now())
+    if (ev.tagCount > 0) {
+      onTagged(anim, ev.tagTo, performance.now())
+      audio.onTag(world, LOCAL_SLOT, ev.tagFrom, ev.tagTo)
+    }
 
     // Round over: rotate to the next map and go again. (Phase 7 puts the leaderboard here.)
     if (world.phase === RoundPhase.Leaderboard) {
@@ -167,12 +190,16 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
     followCamera(cam, lx, ly, world.vx[LOCAL_SLOT]!, world.vy[LOCAL_SLOT]!, dt)
     applyCamera(cam, layers.worldRoot, viewW, viewH)
 
+    audio.update(world, LOCAL_SLOT, dt)
+
     renderAmbience(layers.ambience, now)
+    renderDoors(layers.doors, world)
     renderEchoes(layers.echoes, world, prevBodyX, prevBodyY, a)
     renderFx(layers.fx, world, prevX, prevY, a, now)
     renderLantern(layers.fx, lx, ly, now)
     renderPlayers(layers.bodies, world, prevX, prevY, a, anim, now)
-    renderFog(layers.fog, cam, lx, ly, viewW, viewH)
+    if (!DEV_NOFOG) renderFog(layers.fog, cam, lx, ly, viewW, viewH)
+    else layers.fog.sprite.visible = false
     renderIndicator(layers.indicator, world, LOCAL_SLOT, cam, viewW, viewH, now)
 
     renderer.render(layers.stage)
@@ -206,6 +233,7 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
       cancelAnimationFrame(raf)
       removeEventListener('resize', relayout)
       keyboard.destroy()
+      audio.destroy()
       renderer.destroy()
       delete root.dataset.game
     },

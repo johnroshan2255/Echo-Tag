@@ -6,6 +6,7 @@ import {
   TICK_MS,
 } from '../constants.ts'
 import { NO_SLOT, RoundPhase, type Slot, type StepEvents } from '../types.ts'
+import { updateDoors } from './door.ts'
 import { rebuildEchoBodies, sampleHistory } from './echo.ts'
 import { IDLE_INPUT } from './input.ts'
 import { integratePlayer } from './player.ts'
@@ -62,6 +63,10 @@ export const stepWorld = (w: World, inputs: Uint8Array): StepEvents => {
   }
 
   // ── Playing ──────────────────────────────────────────────────────────────────
+
+  // Doors first, from last tick's positions, so a door starts opening the tick you arrive
+  // and this tick's collision already sees the new openness.
+  updateDoors(w)
 
   for (let s = 0; s < MAX_PLAYERS; s++) {
     if (w.active[s] === 0) continue

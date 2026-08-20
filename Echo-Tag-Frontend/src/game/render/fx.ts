@@ -1,6 +1,6 @@
-import { IT_RING_COLOR, PLAYER_RADIUS, type World } from '@echo-tag/shared'
+import { Decor, IT_RING_COLOR, MAP_TILE, PLAYER_RADIUS, type GameMap, type World } from '@echo-tag/shared'
 import { Container, Sprite, type Texture } from 'pixi.js'
-import { LANTERN_ALPHA, LANTERN_RADIUS, LANTERN_TINT } from '../theme.ts'
+import { LAMP_LIGHT_ALPHA, LAMP_LIGHT_RADIUS, LANTERN_ALPHA, LANTERN_RADIUS, LANTERN_TINT, MAX_LAMPS } from '../theme.ts'
 
 /**
  * The "It" indicator.
@@ -24,6 +24,8 @@ export interface FxLayer {
   core: Sprite
   /** The local player's lantern: warm light that justifies the vision circle. */
   lantern: Sprite
+  /** Standing-lamp light pools; rooms glow faintly through the fog. */
+  lamps: Sprite[]
 }
 
 export const createFxLayer = (glow: Texture): FxLayer => {
@@ -43,10 +45,35 @@ export const createFxLayer = (glow: Texture): FxLayer => {
   lantern.tint = LANTERN_TINT
 
   const container = new Container()
+  const lamps: Sprite[] = []
+  for (let i = 0; i < MAX_LAMPS; i++) {
+    const lamp = make()
+    lamp.tint = LANTERN_TINT
+    const size = LAMP_LIGHT_RADIUS * 2
+    lamp.width = size
+    lamp.height = size
+    lamp.alpha = LAMP_LIGHT_ALPHA
+    container.addChild(lamp)
+    lamps.push(lamp)
+  }
   container.addChild(lantern)
   container.addChild(ring)
   container.addChild(core)
-  return { container, ring, core, lantern }
+  return { container, ring, core, lantern, lamps }
+}
+
+/** Repositions the lamp light pools for a map. Call on map change. */
+export const setLampsFromMap = (layer: FxLayer, map: GameMap): void => {
+  let n = 0
+  for (let i = 0; i < map.decor.length && n < MAX_LAMPS; i += 3) {
+    if (map.decor[i] !== Decor.Lamp) continue
+    const lamp = layer.lamps[n]!
+    lamp.visible = true
+    lamp.x = (map.decor[i + 1]! + 0.5) * MAP_TILE
+    lamp.y = (map.decor[i + 2]! + 0.5) * MAP_TILE - 32 // centred on the lamp head
+    n++
+  }
+  for (; n < MAX_LAMPS; n++) layer.lamps[n]!.visible = false
 }
 
 /** Places the warm pool of light under the local player. World coordinates. */

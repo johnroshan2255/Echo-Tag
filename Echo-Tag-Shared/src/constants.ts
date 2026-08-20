@@ -29,6 +29,27 @@ export const MAP_W = MAP_TILE * MAP_TILES_X // 3200
 export const MAP_H = MAP_TILE * MAP_TILES_Y // 1760
 export const MAP_COUNT = 4
 
+/** Tile values in a map's `walls` array. Anything non-zero is solid. */
+export const TILE_OPEN = 0
+export const TILE_WALL = 1
+export const TILE_FURNITURE = 2
+
+// ── Doors ────────────────────────────────────────────────────────────────────
+// Doors are gameplay, not set dressing: they open themselves as anyone approaches, so a
+// door creaking beyond your vision is information — someone is moving there. They are part
+// of the deterministic simulation (both sides of a chase interact with them), and they can
+// never close on a player standing in the frame.
+export const MAX_DOORS = 8
+/** A door starts opening when any live player is within this range of its centre. */
+export const DOOR_TRIGGER_R = 130
+/** And begins closing only once nobody is within this (hysteresis, so it never flutters). */
+export const DOOR_RELEASE_R = 190
+/** Openness change per tick: fully open in ~0.4s, fully closed in ~0.9s. */
+export const DOOR_OPEN_RATE = 0.125
+export const DOOR_CLOSE_RATE = 0.055
+/** A door blocks movement while openness is below this. */
+export const DOOR_SOLID_BELOW = 0.5
+
 /**
  * The most world a player is ever shown, per axis. The camera zooms so the view never
  * exceeds this window — roughly a 2.5x2.2 screens' walk to cross a map — which is what
