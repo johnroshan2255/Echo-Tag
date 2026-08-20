@@ -17,13 +17,16 @@ import { WebGLRenderer } from 'pixi.js'
 import { applyCamera, createCamera, followCamera, resizeCamera, snapCamera } from './engine/camera.ts'
 import { createLayers, setLayersMap } from './engine/layers.ts'
 import { advance, createTicker } from './engine/ticker.ts'
-import { glowTexture, squareTexture } from './engine/textures.ts'
+import { fogTexture, glowTexture, squareTexture } from './engine/textures.ts'
 import { createKeyboard } from './input/keyboard.ts'
+import { renderAmbience } from './render/ambience.ts'
 import { renderEchoes } from './render/echoRenderer.ts'
-import { renderFx } from './render/fx.ts'
+import { renderFog } from './render/fog.ts'
+import { renderFx, renderLantern } from './render/fx.ts'
 import { renderIndicator } from './render/indicator.ts'
 import { createAnimState, onTagged, renderPlayers } from './render/playerRenderer.ts'
 import { BODY, ECHO } from './render/templates.ts'
+import { FOG_COLOR, FOG_MAX_ALPHA, VISION_CLEAR, VISION_MAX } from './theme.ts'
 
 /**
  * The walk-through world (docs/adr/0005).
@@ -58,7 +61,11 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
     // what we are avoiding. Naming WebGLRenderer keeps WebGPU out of the bundle.
   })
 
-  const layers = createLayers(squareTexture(), glowTexture())
+  const layers = createLayers(
+    squareTexture(),
+    glowTexture(),
+    fogTexture(FOG_COLOR, FOG_MAX_ALPHA, VISION_CLEAR / VISION_MAX),
+  )
   const cam = createCamera()
   const ticker = createTicker()
   const anim = createAnimState()
@@ -160,9 +167,12 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
     followCamera(cam, lx, ly, world.vx[LOCAL_SLOT]!, world.vy[LOCAL_SLOT]!, dt)
     applyCamera(cam, layers.worldRoot, viewW, viewH)
 
+    renderAmbience(layers.ambience, now)
     renderEchoes(layers.echoes, world, prevBodyX, prevBodyY, a)
     renderFx(layers.fx, world, prevX, prevY, a, now)
+    renderLantern(layers.fx, lx, ly, now)
     renderPlayers(layers.bodies, world, prevX, prevY, a, anim, now)
+    renderFog(layers.fog, cam, lx, ly, viewW, viewH)
     renderIndicator(layers.indicator, world, LOCAL_SLOT, cam, viewW, viewH, now)
 
     renderer.render(layers.stage)

@@ -10,6 +10,7 @@ opinions — if it isn't checkable, it isn't a gate.
 | 1 | Deterministic simulation, headless | 2 d | ✅ done |
 | 2 | Renderer & feel | 3 d | ✅ done |
 | 2.5 | World pivot: 4 maps + follow camera | 1 d | ✅ done |
+| 2.6 | Fog of war + cozy dusk retheme | 0.5 d | ✅ done |
 | 3 | Input | 1 d | next |
 | 4 | Server authority | 2 d | |
 | 5 | Prediction & smoothing | 2 d | |
@@ -229,6 +230,22 @@ Visual lesson that cost a round-trip: three near-identical darks (void, wall, fl
 walls dissolve into the floor, and outlining whole wall rects striped every vertical wall.
 Walls now fill near-void and get a lit rim only on faces that touch floor — the line the
 player actually needs. Judged, as always, from `npm run crop`, not the viewport screenshot.
+
+## Phase 2.6 — Fog of war + cozy retheme ✅  (user direction)
+
+Owner: limit vision to the room you are in, and make it cozy — Koira-like, not a tech demo.
+Built: the fog sprite (one quad, geometry contract documented in `engine/textures.ts`), the
+dusk theme in `game/theme.ts` (hedge walls, leaf-litter, fireflies, lantern), softened pastel
+player palette, and the same mood on the boot preview. Details and the fog-geometry trap in
+[ADR 0006](adr/0006-cozy-fog.md).
+
+**Gate:** full `npm run verify` + `npm run check`, plus a pixel-probe of the rendered fog
+falloff (clear at 0, fog-colour by 520wu, in both ray directions). ✅ 6 draw calls of 8.
+
+Verification lesson worth keeping: the screenshot viewer's downscaling *invented* a visible
+player inside the fog — twice — and an hour went to chasing it. The live-page pixel probe
+and a probe of the actual PNG both showed nothing above fog anywhere. For visibility
+questions: measure pixels, never squint at a scaled screenshot.
 
 ## Phase 3 — Input `~1 day`  ← next
 

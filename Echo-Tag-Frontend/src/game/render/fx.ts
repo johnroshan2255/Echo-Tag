@@ -1,5 +1,6 @@
 import { IT_RING_COLOR, PLAYER_RADIUS, type World } from '@echo-tag/shared'
 import { Container, Sprite, type Texture } from 'pixi.js'
+import { LANTERN_ALPHA, LANTERN_RADIUS, LANTERN_TINT } from '../theme.ts'
 
 /**
  * The "It" indicator.
@@ -21,6 +22,8 @@ export interface FxLayer {
   ring: Sprite
   /** Tight bright core — survives a crowded foreground. */
   core: Sprite
+  /** The local player's lantern: warm light that justifies the vision circle. */
+  lantern: Sprite
 }
 
 export const createFxLayer = (glow: Texture): FxLayer => {
@@ -34,11 +37,29 @@ export const createFxLayer = (glow: Texture): FxLayer => {
   }
   const ring = make()
   const core = make()
+  // The lantern shares the glow texture and additive blend, so the fx layer stays one
+  // draw call. It renders under the halo: light first, marking on top.
+  const lantern = make()
+  lantern.tint = LANTERN_TINT
 
   const container = new Container()
+  container.addChild(lantern)
   container.addChild(ring)
   container.addChild(core)
-  return { container, ring, core }
+  return { container, ring, core, lantern }
+}
+
+/** Places the warm pool of light under the local player. World coordinates. */
+export const renderLantern = (layer: FxLayer, wx: number, wy: number, nowMs: number): void => {
+  const l = layer.lantern
+  l.visible = true
+  l.x = wx
+  l.y = wy
+  const size = LANTERN_RADIUS * 2
+  l.width = size
+  l.height = size
+  // Two incommensurate sines make a gentle flicker that never reads as a loop.
+  l.alpha = LANTERN_ALPHA + 0.018 * Math.sin(nowMs * 0.0013) + 0.012 * Math.sin(nowMs * 0.0041)
 }
 
 export const renderFx = (

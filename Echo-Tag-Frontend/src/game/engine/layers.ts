@@ -4,6 +4,8 @@ import { createBodyLayer, type BodyLayer } from '../render/squareBody.ts'
 import { createEchoLayer, type EchoLayer } from '../render/echoRenderer.ts'
 import { createFxLayer, type FxLayer } from '../render/fx.ts'
 import { createIndicatorLayer, type IndicatorLayer } from '../render/indicator.ts'
+import { createAmbienceLayer, seedAmbience, type AmbienceLayer } from '../render/ambience.ts'
+import { createFogLayer, type FogLayer } from '../render/fog.ts'
 import type { GameMap } from '@echo-tag/shared'
 
 /**
@@ -28,36 +30,44 @@ export interface Layers {
   worldRoot: Container
   overlay: Container
   arena: ArenaLayer
+  ambience: AmbienceLayer
   echoes: EchoLayer
   fx: FxLayer
   bodies: BodyLayer
+  fog: FogLayer
   indicator: IndicatorLayer
 }
 
-export const createLayers = (square: Texture, glow: Texture): Layers => {
+export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): Layers => {
   const stage = new Container()
   const worldRoot = new Container()
   const overlay = new Container()
 
   const arena = createArenaLayer()
+  const ambience = createAmbienceLayer(square)
   const echoes = createEchoLayer(square)
   const fx = createFxLayer(glow)
   const bodies = createBodyLayer(square)
+  const fog = createFogLayer(fogTex)
   const indicator = createIndicatorLayer()
 
   worldRoot.addChild(arena.container)
+  worldRoot.addChild(ambience.container) // fireflies drift under everything that matters
   worldRoot.addChild(echoes.container)
   worldRoot.addChild(fx.container)
   worldRoot.addChild(bodies.container)
+  // Fog is screen-space, above the whole world — the arrow alone pierces it.
+  overlay.addChild(fog.container)
   overlay.addChild(indicator.container)
 
   stage.addChild(worldRoot)
   stage.addChild(overlay)
 
-  return { stage, worldRoot, overlay, arena, echoes, fx, bodies, indicator }
+  return { stage, worldRoot, overlay, arena, ambience, echoes, fx, bodies, fog, indicator }
 }
 
-/** Rebuilds the map drawing. Call on map change. */
+/** Rebuilds the map drawing and re-seeds the set dressing. Call on map change. */
 export const setLayersMap = (layers: Layers, map: GameMap): void => {
   layoutArena(layers.arena, map)
+  seedAmbience(layers.ambience, map)
 }

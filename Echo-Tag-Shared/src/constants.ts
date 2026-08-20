@@ -63,7 +63,7 @@ export const ECHO_STRIDE = 4 // every 4th sample becomes a solid body
 /** 60 / 4 = 15 solid echo bodies per player -> 180 max in the arena. */
 export const ECHO_BODIES_PER_PLAYER = ECHO_SAMPLES / ECHO_STRIDE
 export const ECHO_RADIUS = PLAYER_RADIUS * 0.9 // slightly forgiving vs live bodies
-export const ECHO_ALPHA = 0.26 // Tech doc §2 says 30-40%; measured lower, see below
+export const ECHO_ALPHA = 0.3 // pastels need a touch more presence on the dusk floor than the old neons did
 export const ECHO_GRACE_MS = 400 // your own freshest echoes don't collide with you
 /** Grace expressed in ring samples, so the sim never divides in a tick. */
 export const ECHO_GRACE_SAMPLES = Math.round((ECHO_GRACE_MS / 1000) * ECHO_SAMPLE_HZ)
@@ -98,23 +98,27 @@ export const ECHO_SQUARES = 16 // simplified silhouette only — coarse enough t
 export const ECHO_VISUAL_SCALE = 1.15
 /** 12*180 + 180*28 ≈ 7.2k particles, two ParticleContainers, ~2 draw calls. */
 
-// ── Palette (Tech doc §2) ────────────────────────────────────────────────────
-export const BG_COLOR = 0x12141c
+// ── Palette ──────────────────────────────────────────────────────────────────
+// Revised with the cozy retheme (ADR 0006): the tech doc's harsh neon-on-charcoal read as
+// clinical once the world became a place. Players are now warm pastels against a dusk-plum
+// world — still one unmistakable hue per player (trail ownership is gameplay information),
+// but soft enough to sit inside lantern light instead of cutting through it.
+export const BG_COLOR = 0x161226 // dusk plum, the page void
 export const PLAYER_COLORS = [
-  0xff2e88, // hot pink
-  0x38e8ff, // cyan
-  0x7dff3a, // lime
-  0xff9a1f, // orange
-  0xb15cff, // purple
-  0xffe93a, // yellow
-  0xff4d4d, // red
-  0x1fffc4, // teal
-  0x5c8cff, // periwinkle
-  0xff6ad5, // magenta
-  0x9dff8c, // mint
-  0xffb3b3, // salmon
+  0xff85ad, // rose
+  0x7fd6e8, // sky
+  0xa4dd85, // leaf
+  0xffb46e, // apricot
+  0xc79ef2, // lilac
+  0xf6e28c, // butter
+  0xf28d77, // coral
+  0x83e2c4, // mint
+  0x93aaf4, // periwinkle
+  0xe392d5, // orchid
+  0xbcdb90, // sage
+  0xf2b4c6, // blush
 ] as const
-export const IT_RING_COLOR = 0xffffff
+export const IT_RING_COLOR = 0xfff3dc // warm lantern-white, not clinical white
 
 // ── Input ────────────────────────────────────────────────────────────────────
 export const JOYSTICK_BASE_PX = 110

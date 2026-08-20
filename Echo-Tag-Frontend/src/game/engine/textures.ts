@@ -63,3 +63,52 @@ export const glowTexture = (): Texture => {
   cachedGlow = PixiTexture.from(canvas)
   return cachedGlow
 }
+
+/**
+ * The fog-of-war texture: a transparent core feathering out to near-opaque dusk.
+ *
+ * Geometry contract with `render/fog.ts`: the clear core ends at CLEAR_STOP of the half-size
+ * and the fade completes at FULL_STOP, so the renderer can convert "world units of vision"
+ * into a sprite scale exactly. Everything past FULL_STOP is solid, which is what lets one
+ * quad fog an entire screen — the sprite just has to be big enough that its solid region
+ * reaches past the corners.
+ */
+export const FOG_TEX_SIZE = 1024
+/**
+ * The fade completes at 30% of the half-size, leaving 70% of the radius as solid fog.
+ * That long solid tail is load-bearing: `render/fog.ts` must sometimes enlarge the sprite
+ * so its solid region reaches past the screen corners, and enlarging stretches the gradient
+ * with it. With a short tail (an earlier draft used 0.62) that coverage scale-up pushed the
+ * full-fog ring off screen entirely and the "one room of vision" quietly became three.
+ */
+export const FOG_FULL_STOP = 0.3
+
+let cachedFog: Texture | null = null
+
+/** `clearFrac`: how far through the fade the fully-clear core extends (VISION_CLEAR / VISION_MAX). */
+export const fogTexture = (rgb: [number, number, number], maxAlpha: number, clearFrac: number): Texture => {
+  if (cachedFog) return cachedFog
+
+  const size = FOG_TEX_SIZE
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('textures: 2d context unavailable')
+
+  const [r, g, b] = rgb
+  const half = size / 2
+  const clearStop = FOG_FULL_STOP * clearFrac
+  const grad = ctx.createRadialGradient(half, half, 0, half, half, half)
+  grad.addColorStop(0, `rgba(${r},${g},${b},0)`)
+  grad.addColorStop(clearStop, `rgba(${r},${g},${b},0)`)
+  // Ease the ramp with a midpoint so the feather is soft, not linear.
+  grad.addColorStop((clearStop + FOG_FULL_STOP) / 2, `rgba(${r},${g},${b},${maxAlpha * 0.55})`)
+  grad.addColorStop(FOG_FULL_STOP, `rgba(${r},${g},${b},${maxAlpha})`)
+  grad.addColorStop(1, `rgba(${r},${g},${b},${maxAlpha})`)
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, size, size)
+
+  cachedFog = PixiTexture.from(canvas)
+  return cachedFog
+}

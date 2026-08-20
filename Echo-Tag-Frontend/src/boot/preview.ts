@@ -98,5 +98,20 @@ export const drawPreview = (canvas: HTMLCanvasElement): void => {
     ctx.fillRect(cx - body / 2, cy - body / 2, body, body)
   }
 
+  // A warm pool of light in the middle and dusk at the edges — the game's actual mood,
+  // promised on the very first frame.
+  const glowR = Math.min(w, h) * 0.5
+  const warm = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, glowR)
+  warm.addColorStop(0, 'rgba(255,217,163,0.10)')
+  warm.addColorStop(1, 'rgba(255,217,163,0)')
+  ctx.fillStyle = warm
+  ctx.fillRect(0, 0, w, h)
+
+  const dusk = ctx.createRadialGradient(w / 2, h / 2, glowR * 0.7, w / 2, h / 2, Math.hypot(w, h) / 2)
+  dusk.addColorStop(0, 'rgba(15,11,26,0)')
+  dusk.addColorStop(1, 'rgba(15,11,26,0.8)')
+  ctx.fillStyle = dusk
+  ctx.fillRect(0, 0, w, h)
+
   ctx.globalAlpha = 1
 }
