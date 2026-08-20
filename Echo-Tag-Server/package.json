@@ -1,0 +1,29 @@
+{
+  "name": "@echo-tag/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Authoritative Colyseus room server for Echo Tag.",
+  "scripts": {
+    "dev": "colyseus dev",
+    "start": "node --experimental-strip-types src/index.ts",
+    "build": "tsgo --build",
+    "loadtest": "colyseus-loadtest tools/loadtest.ts --room arena --numClients 12"
+  },
+  "dependencies": {
+    "@colyseus/core": "^0.17.50",
+    "@colyseus/schema": "^4.0.31",
+    "@colyseus/tools": "^0.17.20",
+    "@colyseus/uwebsockets-transport": "^0.17.21",
+    "@echo-tag/shared": "*",
+    "colyseus": "^0.17.10",
+    "express": "^5.2.1",
+    "uwebsockets-express": "^2.0.4"
+  },
+  "devDependencies": {
+    "@colyseus/loadtest": "^0.17.8",
+    "@colyseus/monitor": "^0.17.8",
+    "@colyseus/playground": "^0.17.12",
+    "@types/node": "^24.0.0"
+  }
+}

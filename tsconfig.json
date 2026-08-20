@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./Echo-Tag-Shared" },
+    { "path": "./Echo-Tag-Server" },
+    { "path": "./Echo-Tag-Frontend" }
+  ]
+}

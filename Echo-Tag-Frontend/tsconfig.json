@@ -1,0 +1,19 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "noEmit": true,
+    "composite": false,
+    "types": ["vite/client"],
+    "paths": {
+      "react": ["../node_modules/preact/compat"],
+      "react-dom": ["../node_modules/preact/compat"],
+      "react/jsx-runtime": ["../node_modules/preact/jsx-runtime"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  "references": [{ "path": "../Echo-Tag-Shared" }]
+}
