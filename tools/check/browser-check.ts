@@ -343,6 +343,60 @@ try {
       pass(`${gl.maxPerFrame} draw calls per frame at peak (budget 8)`)
     }
 
+    // ── Touch steers the avatar (mobile viewports only) ──
+    // The whole mobile control scheme is one floating joystick; a synthetic touch drag must
+    // move the player, or the game is not actually playable on the devices Poki serves.
+    if (vp.mobile) {
+      const posOf = () =>
+        page.evaluate(() => (globalThis as { __echoTag?: { cam: [number, number] } }).__echoTag?.cam ?? [0, 0])
+      // A spawn can sit in a walled corner, where a fixed drag direction just scrapes the
+      // wall and reads as failure. Direction is not what is under test — the joystick is —
+      // so try up to four headings and pass on the first that produces real movement.
+      const before = await posOf()
+      const cdp = await context.newCDPSession(page)
+      const cx = vp.width / 2
+      const cy = vp.height / 2
+      let dragged = 0
+      let shotTaken = false
+      for (const [dx, dy] of [
+        [before[0]! < 1600 ? 52 : -52, 0],
+        [0, before[1]! < 880 ? 52 : -52],
+        [before[0]! < 1600 ? -52 : 52, 0],
+        [0, before[1]! < 880 ? -52 : 52],
+      ] as const) {
+        const from = await posOf()
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [{ x: cx, y: cy, id: 1 }],
+        })
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [{ x: cx + dx, y: cy + dy, id: 1 }],
+        })
+        if (!shotTaken) {
+          // Capture mid-drag so the joystick base and knob are in the screenshot record.
+          await page.waitForTimeout(400)
+          await page.screenshot({ path: `${SHOTS}/${vp.name}-touch.png` })
+          shotTaken = true
+          await page.waitForTimeout(800)
+        } else {
+          await page.waitForTimeout(1200)
+        }
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        const to = await posOf()
+        dragged = Math.hypot(to[0]! - from[0]!, to[1]! - from[1]!)
+        if (dragged > 100) break
+      }
+      if (dragged > 100) pass(`touch drag steered the avatar ${dragged.toFixed(0)} world units`)
+      else fail(`touch drag did not move the avatar (${dragged.toFixed(0)} world units)`)
+
+      const joyVisible = await page.evaluate(
+        () => (document.getElementById('joy-base') as HTMLElement | null)?.style.display,
+      )
+      if (joyVisible !== undefined) pass('floating joystick elements present')
+      else fail('joystick elements missing from the DOM')
+    }
+
     await page.screenshot({ path: `${SHOTS}/${vp.name}-game.png` })
 
     if (errors.length > 0) for (const e of errors) fail(e)

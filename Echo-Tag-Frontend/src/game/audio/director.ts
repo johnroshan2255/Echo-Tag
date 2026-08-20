@@ -9,7 +9,7 @@ import {
   type World,
 } from '@echo-tag/shared'
 import { createAudioEngine, distanceGain, panFor, setMuffled, setMuted, type AudioEngine } from './engine.ts'
-import { doorCreak, doorThud, footstep, heartThump, startAmbientBed, tagSting } from './voices.ts'
+import { batFlutter, doorCreak, doorThud, footstep, heartThump, nightGroan, startAmbientBed, tagSting } from './voices.ts'
 
 /**
  * The audio director: decides each frame what the world sounds like from where you stand.
@@ -33,6 +33,8 @@ export interface AudioDirector {
   engine: AudioEngine
   update(world: World, localSlot: number, dtMs: number): void
   onTag(world: World, localSlot: number, from: number, to: number): void
+  /** A bat flock just launched — wings, panned at random. */
+  flutter(): void
   destroy(): void
 }
 
@@ -46,6 +48,7 @@ export const createAudioDirector = (): AudioDirector => {
   let heartCooldownMs = 0
   let heartAlternate = false
   let muffled = false
+  let groanInMs = 20_000 + Math.random() * 25_000
 
   const onVisibility = (): void => setMuted(engine, document.hidden)
   document.addEventListener('visibilitychange', onVisibility)
@@ -74,6 +77,13 @@ export const createAudioDirector = (): AudioDirector => {
           else if (open === 0 && prev > 0) doorThud(engine, { gain: gain * 0.9, pan })
         }
         prevDoorOpen[d] = open
+      }
+
+      // ── The house settles ──
+      groanInMs -= dtMs
+      if (groanInMs <= 0) {
+        nightGroan(engine, Math.random() * 1.4 - 0.7)
+        groanInMs = 25_000 + Math.random() * 30_000
       }
 
       // ── Wardrobes ──
@@ -161,6 +171,10 @@ export const createAudioDirector = (): AudioDirector => {
       const dist = Math.sqrt(dx * dx + dy * dy)
       const gain = involvesMe ? 0.9 : distanceGain(dist, DOOR_EARSHOT) * 0.6
       if (gain > 0.02) tagSting(engine, { gain, pan: involvesMe ? 0 : panFor(dx) })
+    },
+
+    flutter(): void {
+      batFlutter(engine, Math.random() * 1.6 - 0.8)
     },
 
     destroy(): void {

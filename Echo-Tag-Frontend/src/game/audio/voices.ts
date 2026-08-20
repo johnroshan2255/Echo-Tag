@@ -213,3 +213,59 @@ export const startAmbientBed = (a: AudioEngine): void => {
   dg.connect(a.master)
   drone.start()
 }
+
+/** A passing flock: six quick leathery wingbeats, panned wide and kept low. */
+export const batFlutter = (a: AudioEngine, pan: number): void => {
+  if (!a.ctx || !a.noise || !a.master || a.muted) return
+  const t = a.ctx.currentTime
+  const out = bus(a, { gain: 0.16, pan }, t + 0.9)
+  if (!out) return
+  for (let i = 0; i < 6; i++) {
+    const at = t + i * 0.09
+    const src = a.ctx.createBufferSource()
+    src.buffer = a.noise
+    src.playbackRate.value = 0.9 + i * 0.05
+    const filt = a.ctx.createBiquadFilter()
+    filt.type = 'bandpass'
+    filt.frequency.value = 900 + i * 120
+    filt.Q.value = 2.2
+    const env = a.ctx.createGain()
+    env.gain.setValueAtTime(0.0001, at)
+    env.gain.exponentialRampToValueAtTime(0.5, at + 0.015)
+    env.gain.exponentialRampToValueAtTime(0.0001, at + 0.07)
+    src.connect(filt)
+    filt.connect(env)
+    env.connect(out)
+    src.start(at)
+    src.stop(at + 0.09)
+  }
+}
+
+/**
+ * The house settling: a low detuned groan from nowhere in particular, every half-minute or
+ * so. Carries no information at all — it exists so the quiet is never quite trustworthy.
+ */
+export const nightGroan = (a: AudioEngine, pan: number): void => {
+  if (!a.ctx || !a.master || a.muted) return
+  const t = a.ctx.currentTime
+  const out = bus(a, { gain: 0.32, pan }, t + 1.8)
+  if (!out) return
+  for (const [f0, f1, detune] of [
+    [61, 43, 0],
+    [61.7, 43.6, 5],
+  ] as const) {
+    const osc = a.ctx.createOscillator()
+    osc.type = 'sine'
+    osc.detune.value = detune
+    osc.frequency.setValueAtTime(f0, t)
+    osc.frequency.exponentialRampToValueAtTime(f1, t + 1.3)
+    const env = a.ctx.createGain()
+    env.gain.setValueAtTime(0.0001, t)
+    env.gain.exponentialRampToValueAtTime(0.16, t + 0.35)
+    env.gain.exponentialRampToValueAtTime(0.0001, t + 1.5)
+    osc.connect(env)
+    env.connect(out)
+    osc.start(t)
+    osc.stop(t + 1.6)
+  }
+}

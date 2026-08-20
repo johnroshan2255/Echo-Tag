@@ -14,7 +14,7 @@ opinions — if it isn't checkable, it isn't a gate.
 | 2.7 | Rooms, doors & the soundscape | 1 d | ✅ done |
 | 2.8 | Wardrobes (hide + keys) & windows | 1 d | ✅ done |
 | 4 | Server authority & multiplayer menu | 2 d | ✅ done (pulled forward; prediction-lite) |
-| 3 | Input | 1 d | next |
+| 3 | Input (touch joystick) + horror dressing | 1 d | ✅ done |
 | 4 | Server authority | 2 d | |
 | 5 | Prediction & smoothing | 2 d | |
 | 6 | Bots & matchmaking | 1.5 d | |
@@ -293,7 +293,15 @@ e2e where movement on one screen appears on the other and round clocks agree to 
 millisecond. Details and the two traps (schema v4 metadata, setPrivate vs join-by-code) in
 [ADR 0009](adr/0009-multiplayer.md).
 
-## Phase 3 — Input `~1 day`  ← next
+## Phase 3 — Input ✅  (+ horror dressing, user direction)
+
+The floating touch joystick — the entire mobile scheme — plus cobwebs, skittering spiders,
+bat flocks and the settling-house groan. Mobile playability is asserted, not assumed: the
+check's mobile viewports synthesize touch drags and require real movement. Traps recorded
+(early pointerup mid-gesture; the drag-into-a-wall false failure) in
+[ADR 0010](adr/0010-mobile-and-horror.md).
+
+Remaining input work folds into Phase 7: `gameplayStart()` on first input for Poki.
 
 - `input/detect.ts` — pointer-type + coarse-media detection. Keyboard and touch stay live
   simultaneously (iPad with a keyboard case must work without a mode switch).

@@ -20,6 +20,7 @@ import { applyCamera, createCamera, followCamera, resizeCamera, snapCamera } fro
 import { createLayers, setLayersMap } from './engine/layers.ts'
 import { advance, createTicker } from './engine/ticker.ts'
 import { fogTexture, glowTexture, squareTexture } from './engine/textures.ts'
+import { createJoystick } from './input/joystick.ts'
 import { createKeyboard } from './input/keyboard.ts'
 import { renderAmbience } from './render/ambience.ts'
 import { renderDoors } from './render/doors.ts'
@@ -92,6 +93,9 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   const ticker = createTicker()
   const anim = createAnimState()
   const keyboard = createKeyboard()
+  // Both schemes live at once — an iPad with a keyboard case is both devices.
+  const joystick = createJoystick()
+  const localInput = (): number => (joystick.active ? joystick.packed : keyboard.packed)
   const driver = createDriverState()
   // Created here — inside the Play-click call stack — so the AudioContext starts unlocked.
   const audio = createAudioDirector()
@@ -173,7 +177,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   let simTick = 0
   const stepNet = (): void => {
     // Net mode: the fixed tick only sends input (with prediction inside the driver).
-    net!.sendInput(keyboard.packed)
+    net!.sendInput(localInput())
   }
   const step = (): void => {
     prevX.set(world.x)
@@ -181,7 +185,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     prevBodyX.set(world.bodyX)
     prevBodyY.set(world.bodyY)
 
-    inputs[LOCAL_SLOT] = keyboard.packed
+    inputs[LOCAL_SLOT] = localInput()
     syntheticDriver(world, inputs, simTick, driver, LOCAL_SLOT)
 
     const ev = stepWorld(world, inputs)
@@ -234,7 +238,8 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
 
     audio.update(world, mySlot, dt)
 
-    renderAmbience(layers.ambience, now)
+    renderAmbience(layers.ambience, now, cam.cx, cam.cy)
+    if (layers.ambience.flockJustStarted) audio.flutter()
     renderDoors(layers.doors, world)
     renderEchoes(layers.echoes, world, prevBodyX, prevBodyY, a)
     renderFx(layers.fx, world, prevX, prevY, a, now)
@@ -277,6 +282,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       cancelAnimationFrame(raf)
       removeEventListener('resize', relayout)
       keyboard.destroy()
+      joystick.destroy()
       audio.destroy()
       lobbyUi?.destroy()
       net?.destroy()

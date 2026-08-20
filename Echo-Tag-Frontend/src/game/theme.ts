@@ -67,6 +67,22 @@ export const LANTERN_TINT = 0xffd9a3
 export const LANTERN_RADIUS = 420 // world units; slightly larger than VISION_CLEAR so light feathers into fog
 export const LANTERN_ALPHA = 0.16
 
+// ── Horror dressing ──
+// The Koira register: cuteness against the unknown dark. Webs and spiders make the maze
+// feel long-abandoned; bats make the dark feel inhabited. None of it touches gameplay.
+export const WEB_COLOR = 0xa9a1c6
+export const WEB_ALPHA = 0.22
+export const WEBS_PER_MAP = 20
+export const SPIDER_COUNT = 10
+export const SPIDER_TINT = 0x0d0a16 // a shadow that moves
+export const SPIDER_SIZE = 5.5
+export const BAT_COUNT = 6
+export const BAT_TINT = 0x171126
+export const BAT_SIZE = 9
+/** Seconds between bat flocks (min..max). */
+export const BAT_LULL_MIN = 16
+export const BAT_LULL_MAX = 36
+
 // ── Fireflies ──
 export const FIREFLY_TINT = 0xffe9b0
 export const FIREFLY_COUNT = 130

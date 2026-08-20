@@ -4,6 +4,9 @@ import { Container, Graphics } from 'pixi.js'
 import {
   cosmeticRng,
   FLOOR,
+  WEB_ALPHA,
+  WEB_COLOR,
+  WEBS_PER_MAP,
   WARDROBE_FILL,
   WARDROBE_HANDLE,
   WARDROBE_PANEL,
@@ -119,6 +122,51 @@ export const layoutArena = (layer: ArenaLayer, map: GameMap): void => {
         g.rect(px, y + 14, 3, MAP_TILE - 26).fill({ color: WOOD_DARK, alpha: 0.5 })
       }
       tx += run - 1
+    }
+  }
+
+  // Cobwebs: strung across the inside corners where two walls meet — the classic sign of
+  // a place nobody has dusted in years. A web is three concentric quarter-arcs plus three
+  // anchor threads, seeded per map. Corners are found, not authored: any open tile whose
+  // two orthogonal neighbours on one diagonal are both solid can hold one.
+  {
+    const corners: Array<[number, number, number, number]> = [] // x, y, dirX, dirY
+    for (let ty = 1; ty < MAP_TILES_Y - 1; ty++) {
+      for (let tx = 1; tx < MAP_TILES_X - 1; tx++) {
+        if (walls[ty * MAP_TILES_X + tx] !== 0) continue
+        for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+          if (isWallAt(tx + dx, ty) && isWallAt(tx, ty + dy)) {
+            corners.push([
+              (tx + (dx < 0 ? 0 : 1)) * MAP_TILE,
+              (ty + (dy < 0 ? 0 : 1)) * MAP_TILE,
+              -dx,
+              -dy,
+            ])
+          }
+        }
+      }
+    }
+    // Spread deterministically: walk the corner list at a seeded stride instead of random
+    // splices — same dressing every visit, and the first pick is stable for review crops.
+    const stride = Math.max(1, Math.floor(corners.length / WEBS_PER_MAP))
+    const offset = Math.floor(rng() * stride)
+    for (let n = 0; n < WEBS_PER_MAP && n * stride + offset < corners.length; n++) {
+      const [x, y, dx, dy] = corners[n * stride + offset]!
+      const size = 46 + rng() * 34
+      for (const frac of [0.45, 0.72, 1]) {
+        const r = size * frac
+        // Quarter-arc as a 4-segment polyline sagging slightly toward the corner.
+        g.moveTo(x + dx * r, y)
+        for (let k = 1; k <= 4; k++) {
+          const a = (k / 4) * (Math.PI / 2)
+          const sag = 1 - 0.12 * Math.sin(a * 2)
+          g.lineTo(x + dx * Math.cos(a) * r * sag, y + dy * Math.sin(a) * r * sag)
+        }
+      }
+      for (const a of [0.12, 0.5, 0.88]) {
+        g.moveTo(x, y).lineTo(x + dx * Math.cos(a * (Math.PI / 2)) * size, y + dy * Math.sin(a * (Math.PI / 2)) * size)
+      }
+      g.stroke({ color: WEB_COLOR, alpha: WEB_ALPHA, width: 2.5 })
     }
   }
 

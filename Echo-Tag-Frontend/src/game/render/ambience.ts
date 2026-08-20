@@ -1,18 +1,35 @@
-import { MAP_TILE, MAP_TILES_X } from '@echo-tag/shared/constants'
+import { MAP_TILE, MAP_TILES_X, MAP_W, MAP_H } from '@echo-tag/shared/constants'
 import type { GameMap } from '@echo-tag/shared'
 import { Particle, ParticleContainer, type Texture } from 'pixi.js'
-import { cosmeticRng, FIREFLY_COUNT, FIREFLY_DRIFT, FIREFLY_SIZE, FIREFLY_TINT } from '../theme.ts'
+import {
+  BAT_COUNT,
+  BAT_LULL_MAX,
+  BAT_LULL_MIN,
+  BAT_SIZE,
+  BAT_TINT,
+  cosmeticRng,
+  FIREFLY_COUNT,
+  FIREFLY_DRIFT,
+  FIREFLY_SIZE,
+  FIREFLY_TINT,
+  SPIDER_COUNT,
+  SPIDER_SIZE,
+  SPIDER_TINT,
+} from '../theme.ts'
 
 /**
- * Fireflies.
+ * The living dark: fireflies, spiders, bats. One ParticleContainer, one draw call — every
+ * creature is the same 8px square at a different size, tint and motion.
  *
- * The single cheapest thing that makes a dark world feel alive instead of empty: a hundred
- * warm points drifting slowly in the open spaces, each twinkling on its own phase. One
- * ParticleContainer, one draw call, reusing the 8px square texture at 3 world units — at
- * that size a square through fog reads as a glow point.
+ * Fireflies are the warmth; spiders and bats are the horror half of the Koira register.
+ * Spiders are shadows that skitter in bursts near the walls and freeze — motion in the
+ * corner of the eye. Bats pass as an occasional flock that crosses the player's general
+ * area, weaving and flapping, announced by a flutter of wings (the audio director watches
+ * `flockJustStarted`).
  *
- * They are pure set dressing: seeded per map, no collision, no gameplay meaning, and they
- * must stay dimmer than any echo so nobody ever mistakes one for an obstacle or a player.
+ * All of it is pure set dressing: seeded per map, no collision, no gameplay meaning, and
+ * everything stays dimmer or darker than any echo so nobody ever mistakes dressing for an
+ * obstacle or a player.
  */
 
 export interface AmbienceLayer {
@@ -22,6 +39,22 @@ export interface AmbienceLayer {
   baseX: Float32Array
   baseY: Float32Array
   phase: Float32Array
+  // Spiders: current position, heading, per-spider phase.
+  spiders: Particle[]
+  spX: Float32Array
+  spY: Float32Array
+  spHeading: Float32Array
+  spPhase: Float32Array
+  // Bats: one flock at a time.
+  bats: Particle[]
+  batOriginX: number
+  batOriginY: number
+  batDirX: number
+  batDirY: number
+  batStartedMs: number
+  nextFlockMs: number
+  flockJustStarted: boolean
+  rngState: () => number
 }
 
 export const createAmbienceLayer = (texture: Texture): AmbienceLayer => {
@@ -29,30 +62,53 @@ export const createAmbienceLayer = (texture: Texture): AmbienceLayer => {
     dynamicProperties: { position: true, color: true, vertex: false, rotation: false, uvs: false },
   })
 
-  const particles: Particle[] = []
-  const baseX = new Float32Array(FIREFLY_COUNT)
-  const baseY = new Float32Array(FIREFLY_COUNT)
-  const phase = new Float32Array(FIREFLY_COUNT)
-  for (let i = 0; i < FIREFLY_COUNT; i++) {
+  const make = (size: number, tint: number): Particle => {
     const p = new Particle({
       texture,
       x: -9999,
       y: -9999,
-      scaleX: FIREFLY_SIZE / 8,
-      scaleY: FIREFLY_SIZE / 8,
+      scaleX: size / 8,
+      scaleY: size / 8,
       anchorX: 0.5,
       anchorY: 0.5,
-      tint: FIREFLY_TINT,
+      tint,
       alpha: 0,
     })
-    particles.push(p)
     container.addParticle(p)
+    return p
   }
 
-  return { container, particles, baseX, baseY, phase }
+  const particles: Particle[] = []
+  for (let i = 0; i < FIREFLY_COUNT; i++) particles.push(make(FIREFLY_SIZE, FIREFLY_TINT))
+  const spiders: Particle[] = []
+  for (let i = 0; i < SPIDER_COUNT; i++) spiders.push(make(SPIDER_SIZE, SPIDER_TINT))
+  const bats: Particle[] = []
+  for (let i = 0; i < BAT_COUNT; i++) bats.push(make(BAT_SIZE, BAT_TINT))
+
+  return {
+    container,
+    particles,
+    baseX: new Float32Array(FIREFLY_COUNT),
+    baseY: new Float32Array(FIREFLY_COUNT),
+    phase: new Float32Array(FIREFLY_COUNT),
+    spiders,
+    spX: new Float32Array(SPIDER_COUNT),
+    spY: new Float32Array(SPIDER_COUNT),
+    spHeading: new Float32Array(SPIDER_COUNT),
+    spPhase: new Float32Array(SPIDER_COUNT),
+    bats,
+    batOriginX: 0,
+    batOriginY: 0,
+    batDirX: 1,
+    batDirY: 0,
+    batStartedMs: -1,
+    nextFlockMs: 9000,
+    flockJustStarted: false,
+    rngState: cosmeticRng(0xba7ba7),
+  }
 }
 
-/** Re-seeds firefly homes for a map. Call on map change. */
+/** Re-seeds firefly homes and spider haunts for a map. Call on map change. */
 export const seedAmbience = (layer: AmbienceLayer, map: GameMap): void => {
   const rng = cosmeticRng(0xf17ef1 + map.index * 131)
   for (let i = 0; i < FIREFLY_COUNT; i++) {
@@ -61,10 +117,20 @@ export const seedAmbience = (layer: AmbienceLayer, map: GameMap): void => {
     layer.baseY[i] = ((tile / MAP_TILES_X) | 0) * MAP_TILE + rng() * MAP_TILE
     layer.phase[i] = rng() * Math.PI * 2
   }
+  for (let i = 0; i < SPIDER_COUNT; i++) {
+    const tile = map.openTiles[Math.floor(rng() * map.openTiles.length)]!
+    layer.spX[i] = (tile % MAP_TILES_X) * MAP_TILE + rng() * MAP_TILE
+    layer.spY[i] = ((tile / MAP_TILES_X) | 0) * MAP_TILE + rng() * MAP_TILE
+    layer.spHeading[i] = rng() * Math.PI * 2
+    layer.spPhase[i] = rng() * 10
+  }
 }
 
-export const renderAmbience = (layer: AmbienceLayer, nowMs: number): void => {
+/** Per-frame update. Returns nothing but sets `flockJustStarted` on bat launch frames. */
+export const renderAmbience = (layer: AmbienceLayer, nowMs: number, camX: number, camY: number): void => {
   const t = nowMs * 0.001
+  layer.flockJustStarted = false
+
   for (let i = 0; i < FIREFLY_COUNT; i++) {
     const p = layer.particles[i]!
     const ph = layer.phase[i]!
@@ -74,5 +140,57 @@ export const renderAmbience = (layer: AmbienceLayer, nowMs: number): void => {
     // Twinkle: mostly dim, briefly bright, never brighter than an echo.
     const tw = Math.sin(t * 0.9 + ph * 3.1)
     p.alpha = 0.05 + Math.max(0, tw) * 0.18
+  }
+
+  // Spiders: skitter-freeze. A burst of quick legwork, then dead stillness — the freeze is
+  // what makes the next burst read as movement in the corner of the eye.
+  for (let i = 0; i < SPIDER_COUNT; i++) {
+    const p = layer.spiders[i]!
+    const cycle = (t * 0.5 + layer.spPhase[i]!) % 3
+    if (cycle < 0.4) {
+      layer.spX[i] = layer.spX[i]! + Math.cos(layer.spHeading[i]!) * 1.6
+      layer.spY[i] = layer.spY[i]! + Math.sin(layer.spHeading[i]!) * 1.6
+    } else if (cycle > 2.96) {
+      // Turn while frozen, occasionally reversing — spiders do not walk straight lines.
+      layer.spHeading[i] = layer.spHeading[i]! + (layer.rngState() - 0.4) * 2.4
+    }
+    // Never wander off the map.
+    if (layer.spX[i]! < 90 || layer.spX[i]! > MAP_W - 90) layer.spHeading[i] = Math.PI - layer.spHeading[i]!
+    if (layer.spY[i]! < 90 || layer.spY[i]! > MAP_H - 90) layer.spHeading[i] = -layer.spHeading[i]!
+    p.x = layer.spX[i]!
+    p.y = layer.spY[i]!
+    p.alpha = 0.8
+  }
+
+  // Bats: one flock at a time, launched on a lull timer, crossing the player's general
+  // area so it is always half-seen through the fog rather than staged in front of you.
+  if (layer.batStartedMs < 0 && nowMs >= layer.nextFlockMs) {
+    const angle = layer.rngState() * Math.PI * 2
+    layer.batDirX = Math.cos(angle)
+    layer.batDirY = Math.sin(angle)
+    layer.batOriginX = camX - layer.batDirX * 900 + (layer.rngState() - 0.5) * 500
+    layer.batOriginY = camY - layer.batDirY * 900 + (layer.rngState() - 0.5) * 500
+    layer.batStartedMs = nowMs
+    layer.flockJustStarted = true
+  }
+
+  if (layer.batStartedMs >= 0) {
+    const age = (nowMs - layer.batStartedMs) / 1000
+    const dist = age * 430 // wing speed in world units/sec
+    for (let i = 0; i < BAT_COUNT; i++) {
+      const p = layer.bats[i]!
+      const lag = i * 46 + Math.sin(t * 2.1 + i * 2.7) * 22 // stagger + jostle
+      const weave = Math.sin(t * 3.4 + i * 1.9) * 46
+      p.x = layer.batOriginX + layer.batDirX * (dist - lag) - layer.batDirY * weave
+      p.y = layer.batOriginY + layer.batDirY * (dist - lag) + layer.batDirX * weave
+      // The flap: vertical squash at wingbeat rate.
+      p.scaleY = ((BAT_SIZE / 8) * (0.45 + Math.abs(Math.sin(t * 14 + i)))) / 1.4
+      p.alpha = 0.85
+    }
+    if (dist > 2100) {
+      layer.batStartedMs = -1
+      layer.nextFlockMs = nowMs + (BAT_LULL_MIN + layer.rngState() * (BAT_LULL_MAX - BAT_LULL_MIN)) * 1000
+      for (const p of layer.bats) p.alpha = 0
+    }
   }
 }
