@@ -18,8 +18,9 @@ export default defineConfig(({ mode }) => ({
   build: {
     target: 'es2022',
     cssTarget: 'chrome111',
-    // Poki's cap is 8MB initial; ours is ~250KB brotli. Fail loud well before that.
-    chunkSizeWarningLimit: 300,
+    // Raw-size warning only. The real gate is brotli size in `npm run size`, where the
+    // PixiJS chunk measures ~83KB against a 160KB budget.
+    chunkSizeWarningLimit: 400,
     assetsInlineLimit: 4096,
     modulePreload: { polyfill: false },
     reportCompressedSize: true,

@@ -11,18 +11,41 @@
     <!-- Warm the websocket path while the game chunk is still downloading. -->
     <link rel="preconnect" href="%VITE_WS_ORIGIN%" crossorigin />
 
+    <!-- Inline favicon: a real file would be one more request, and a missing one is a 404. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2312141c'/%3E%3Crect x='6' y='6' width='7' height='7' fill='%2338e8ff' opacity='.35'/%3E%3Crect x='13' y='13' width='7' height='7' fill='%2338e8ff' opacity='.6'/%3E%3Crect x='20' y='20' width='7' height='7' fill='%2338e8ff'/%3E%3C/svg%3E" />
+
     <!-- Critical CSS is inlined at build time; nothing here blocks rendering. -->
     <style>
       :root { color-scheme: dark; --bg: #12141c; --ink: #f4f6ff; --accent: #38e8ff; }
       * { margin: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
         font: 600 16px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-      #stage { position: fixed; inset: 0; display: block; touch-action: none; }
-      #ui { position: fixed; inset: 0; pointer-events: none; }
+      /* Two canvases, not one: a canvas is permanently bound to the first context type it
+         hands out, so a 2D preview and a WebGL arena cannot share one element. #preview
+         sits on top until the engine is live, then cross-fades away. */
+      /* The explicit 100%/100% is load-bearing, not belt-and-braces. A <canvas> is a
+         replaced element: with width:auto it lays out at its *attribute* size, so
+         `position:fixed; inset:0` alone leaves a 2880x1800 backing store occupying
+         2880x1800 CSS pixels inside a 1440x900 viewport — half the arena off-screen, and
+         every CSS-pixel measurement off by the device pixel ratio. */
+      #stage, #preview { position: fixed; inset: 0; display: block; touch-action: none;
+        width: 100%; height: 100%; }
+      #preview { z-index: 1; transition: opacity .28s ease-out; }
+      #preview.gone { opacity: 0; pointer-events: none; }
+      #ui { position: fixed; inset: 0; z-index: 2; pointer-events: none;
+        display: grid; place-content: center; gap: 14px; justify-items: center; }
+      #play { pointer-events: auto; cursor: pointer; border: 0; border-radius: 999px;
+        padding: 18px 56px; font: 800 22px/1 system-ui, sans-serif; letter-spacing: .12em;
+        color: #0b0d14; background: var(--accent);
+        box-shadow: 0 0 0 4px rgba(56,232,255,.16), 0 10px 40px rgba(56,232,255,.28); }
+      #play:disabled { cursor: default; filter: saturate(.4) brightness(.8); }
+      #status { font: 600 14px/1.4 system-ui, sans-serif; color: #9aa4c4; text-align: center;
+        max-width: 22ch; }
     </style>
   </head>
   <body>
     <canvas id="stage"></canvas>
+    <canvas id="preview"></canvas>
     <div id="ui"></div>
     <script type="module" src="/src/boot/main.ts"></script>
   </body>

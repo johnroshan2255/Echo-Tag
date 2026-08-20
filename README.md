@@ -26,24 +26,40 @@ Built for Poki: no login, no lobby, interactive in under 300ms.
 4. [`docs/PERFORMANCE_BUDGET.md`](docs/PERFORMANCE_BUDGET.md) — how "near-zero load" is achieved and enforced.
 5. [`docs/COMPETITIVE_ANALYSIS.md`](docs/COMPETITIVE_ANALYSIS.md) — Curve Fever and the past-self lineage.
 
-## Requirements
-
-Node **24.18.1** — `nvm use` picks it up from `.nvmrc`. npm workspaces; no other package
-manager needed. Node 24 runs `.ts` files natively, so there is no build step in development.
-
-## Commands
+## Run it
 
 ```bash
-npm install            # install all three workspaces
-npm run dev:server     # Colyseus, :2567
-npm run dev:web        # Vite, :5173
-npm run typecheck      # TypeScript 7 (tsc) across project references
-npm run test           # simulation invariants (node:test)
-npm run bench:sim      # headless 12-player 3-minute round; step cost + allocation gate
-npm run verify         # typecheck + test + bench — run this before committing
-npm run build          # shared -> server -> frontend
-npm run size           # bundle budget gate — fails if load time regresses
-npm run analyze        # treemap of what's in each chunk
+nvm use && npm install
+npm run dev            # → http://localhost:5173
+```
+
+Node **24.18.1** (from `.nvmrc`) runs `.ts` natively, so there is no build step in
+development. npm workspaces; no other package manager needed.
+
+## Check it
+
+```bash
+npm run verify         # ~3s   types + 22 sim invariants + step-cost/allocation gate
+npm run check          # ~15s  the above + bundle budget + headless Chrome, 3 viewports
+```
+
+Full detail, and the two things the browser check deliberately cannot prove, are in
+[`docs/RUNNING.md`](docs/RUNNING.md).
+
+## All commands
+
+```bash
+npm run dev                     # Vite dev server, :5173
+npm run dev:server              # Colyseus, :2567 (not needed until Phase 4)
+npm run typecheck               # TypeScript 7 across project references
+npm run test                    # simulation invariants (node:test)
+npm run bench:sim               # 12-player 3-minute round; step cost + allocation gate
+npm run verify                  # typecheck + test + bench — before every commit
+npm run build                   # shared -> server -> frontend
+npm run size                    # bundle budget gate
+npm run check                   # build + size + headless Chrome check
+npm run check:browser -- --headed   # same browser check, visible window
+npm run analyze                 # treemap of what is in each chunk
 ```
 
 ## Two rules that keep the game fast

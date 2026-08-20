@@ -8,7 +8,7 @@ opinions — if it isn't checkable, it isn't a gate.
 |---|---|---|---|
 | 0 | Foundation & toolchain | 0.5 d | ✅ done |
 | 1 | Deterministic simulation, headless | 2 d | ✅ done |
-| 2 | Renderer & feel | 3 d | next |
+| 2 | Renderer & feel | 3 d | next — baseline green |
 | 3 | Input | 1 d | |
 | 4 | Server authority | 2 d | |
 | 5 | Prediction & smoothing | 2 d | |
@@ -29,6 +29,23 @@ Workspace layout, verified-latest dependency set, TS 7 project references, CI wi
 bundle-budget gate wired before there is any code to regress.
 
 **Gate:** `npm run typecheck` clean on all three workspaces. ✅
+
+Extended after Phase 1 with the run-and-check loop (`docs/RUNNING.md`): a real boot chunk,
+a headless-Chrome smoke check across three viewports, and the bundle budget measured on the
+actual build. Current: **boot 3.3KB / engine 80.8KB / total 85.0KB brotli** against budgets
+of 16 / 160 / 260 — PixiJS came in at half its allowance.
+
+Three bugs the browser check caught immediately, none of which a unit test could see:
+- a `<canvas>` is permanently bound to the first context type it hands out, so the 2D
+  preview and the WebGL arena cannot share one element — Pixi reported it as
+  "this browser does not support WebGL"
+- `position: fixed; inset: 0` does **not** stretch a canvas: as a replaced element with
+  `width: auto` it lays out at its *attribute* size, so a 2880x1800 backing store occupied
+  2880x1800 CSS px inside a 1440x900 viewport, putting half the arena off-screen. Explicit
+  `width: 100%; height: 100%` is load-bearing.
+- forcing `--use-angle=swiftshader` in headless Chrome breaks Pixi's context request even
+  though a bare `getContext('webgl2')` still succeeds. Modern headless Chrome already gets
+  hardware GL through ANGLE; do not force software.
 
 **Settled here:**
 - Node **24.18.1** (`.nvmrc`), which runs `.ts` files natively — no build step in dev, and
