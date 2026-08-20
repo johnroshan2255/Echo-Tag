@@ -1,52 +1,83 @@
+import { MAP_H, MAP_W, VIEW_MAX_W, VIEW_MAX_H } from '@echo-tag/shared/constants'
+import type { Container } from 'pixi.js'
+
 /**
- * World-to-screen mapping.
+ * The follow camera.
  *
- * The arena is a fixed 16:9 rectangle in world units, identical for every player in a room —
- * it has to be, because it is server-authoritative state and two clients on different
- * screens must agree about where the walls are. So the camera never crops: it scales the
- * whole arena to fit and letterboxes the remainder.
+ * This is the heart of the walk-through-a-world pivot (docs/adr/0005): the map is larger
+ * than the screen, the camera tracks *your* avatar, and you learn where the others are by
+ * hunting for them — not by reading a diagram. Mechanically it is three rules:
  *
- * That is the honest consequence of a landscape arena on a portrait phone: a 1600x900 arena
- * in a 390x844 viewport becomes a 390x220 band. Everyone still sees the entire arena, which
- * is what fairness requires, but portrait is visibly the lesser view — hence the rotate hint
- * below. Poki requires portrait to *work* (it unlocks the mobile banner slot), not to be the
- * primary experience.
+ *   1. **Zoom**: `scale = max(viewW / VIEW_MAX_W, viewH / VIEW_MAX_H)` — the view never
+ *      shows more than VIEW_MAX world units on either axis. `max` rather than `min` is the
+ *      fairness bound: a huge monitor gets bigger pixels, not more maze. Portrait phones
+ *      get a tall, narrow window — a real view, not a letterboxed postage stamp, which is
+ *      what fixes the portrait problem Phase 2 carried as an open question.
+ *   2. **Follow**: exponential approach toward the player plus a small velocity lookahead,
+ *      so the camera leads into the direction of travel instead of dragging behind it.
+ *   3. **Clamp**: the view never leaves the map, so map edges read as places, and the
+ *      camera goes still as you corner — a classic cue that you are *in* a corner.
+ *
+ * The camera does not transform points: it transforms the ONE world-root container, once
+ * per frame. Renderers write world coordinates and never know the camera exists.
  */
 
 export interface Camera {
-  /** Screen pixels per world unit. */
+  /** World-space centre of the view. */
+  cx: number
+  cy: number
+  /** Device pixels per world unit. */
   scale: number
-  /** Screen offset of world origin, in device pixels. */
-  ox: number
-  oy: number
-  /** Arena extent in device pixels. */
-  w: number
-  h: number
+  /** Half the view extent, in world units. Cached by resize(). */
+  halfW: number
+  halfH: number
 }
 
-export const createCamera = (): Camera => ({ scale: 1, ox: 0, oy: 0, w: 0, h: 0 })
+export const createCamera = (): Camera => ({ cx: MAP_W / 2, cy: MAP_H / 2, scale: 1, halfW: 0, halfH: 0 })
 
-export const fitCamera = (
+/** Recomputes zoom for a new viewport. Call on resize, not per frame. */
+export const resizeCamera = (cam: Camera, viewW: number, viewH: number): void => {
+  cam.scale = Math.max(viewW / VIEW_MAX_W, viewH / VIEW_MAX_H)
+  cam.halfW = viewW / (2 * cam.scale)
+  cam.halfH = viewH / (2 * cam.scale)
+}
+
+const LOOKAHEAD_S = 0.28 // seconds of velocity the camera leads by
+const FOLLOW_RATE = 4.5 // per second; higher = stiffer follow
+
+export const followCamera = (
   cam: Camera,
-  arenaW: number,
-  arenaH: number,
-  viewW: number,
-  viewH: number,
+  targetX: number,
+  targetY: number,
+  vx: number,
+  vy: number,
+  dtMs: number,
 ): void => {
-  const scale = Math.min(viewW / arenaW, viewH / arenaH)
-  cam.scale = scale
-  cam.w = arenaW * scale
-  cam.h = arenaH * scale
-  cam.ox = Math.round((viewW - cam.w) / 2)
-  cam.oy = Math.round((viewH - cam.h) / 2)
+  const wantX = targetX + vx * LOOKAHEAD_S
+  const wantY = targetY + vy * LOOKAHEAD_S
+  const k = 1 - Math.exp(-FOLLOW_RATE * (dtMs / 1000))
+  cam.cx += (wantX - cam.cx) * k
+  cam.cy += (wantY - cam.cy) * k
+
+  // Clamp the view inside the map. If a view axis exceeds the map (tiny map, huge zoom-out
+  // — cannot happen with current constants, but cheap to be correct about), centre it.
+  cam.cx = cam.halfW * 2 >= MAP_W ? MAP_W / 2 : cam.cx < cam.halfW ? cam.halfW : cam.cx > MAP_W - cam.halfW ? MAP_W - cam.halfW : cam.cx
+  cam.cy = cam.halfH * 2 >= MAP_H ? MAP_H / 2 : cam.cy < cam.halfH ? cam.halfH : cam.cy > MAP_H - cam.halfH ? MAP_H - cam.halfH : cam.cy
 }
 
-export const toScreenX = (cam: Camera, wx: number): number => cam.ox + wx * cam.scale
-export const toScreenY = (cam: Camera, wy: number): number => cam.oy + wy * cam.scale
+/** Snaps the camera onto a point with no easing — round start, respawn, map change. */
+export const snapCamera = (cam: Camera, x: number, y: number): void => {
+  cam.cx = x
+  cam.cy = y
+  followCamera(cam, x, y, 0, 0, 0) // reuse the clamp
+}
 
-/**
- * True when the arena has been squeezed so far that the player should be nudged to rotate.
- * Threshold is the fraction of the viewport's shorter axis the arena ends up occupying.
- */
-export const wantsRotate = (cam: Camera, viewW: number, viewH: number): boolean =>
-  viewH > viewW && cam.h / viewH < 0.45
+/** Applies the camera to the world-root container. The only world→screen transform. */
+export const applyCamera = (cam: Camera, worldRoot: Container, viewW: number, viewH: number): void => {
+  worldRoot.scale.set(cam.scale)
+  worldRoot.position.set(viewW / 2 - cam.cx * cam.scale, viewH / 2 - cam.cy * cam.scale)
+}
+
+/** True when a world point is inside the view, with `margin` world units of slack. */
+export const inView = (cam: Camera, wx: number, wy: number, margin = 0): boolean =>
+  Math.abs(wx - cam.cx) < cam.halfW + margin && Math.abs(wy - cam.cy) < cam.halfH + margin

@@ -1,4 +1,4 @@
-export { createWorld, addPlayer, removePlayer, spawnAll, arenaScaleFor, setArenaSize, leastItTimeSlot, random, type World } from './world.ts'
+export { createWorld, addPlayer, removePlayer, spawnAll, setMap, leastItTimeSlot, random, type World } from './world.ts'
 export { stepWorld, enterPhase } from './step.ts'
 export { integratePlayer } from './player.ts'
 export { resolveTags, setIt, isImmune } from './tag.ts'

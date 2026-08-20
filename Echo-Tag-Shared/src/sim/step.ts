@@ -10,7 +10,7 @@ import { rebuildEchoBodies, sampleHistory } from './echo.ts'
 import { IDLE_INPUT } from './input.ts'
 import { integratePlayer } from './player.ts'
 import { resolveTags, setIt } from './tag.ts'
-import { leastItTimeSlot, random, setArenaSize, spawnAll, type World } from './world.ts'
+import { leastItTimeSlot, random, spawnAll, type World } from './world.ts'
 
 /**
  * THE tick. The only place game rules advance.
@@ -94,10 +94,8 @@ export const enterPhase = (w: World, phase: RoundPhase): void => {
   w.phaseMs = 0
 
   if (phase === RoundPhase.Countdown) {
-    // Resize the arena to the confirmed headcount, then place everyone.
-    // Written field-by-field rather than destructured from `arenaSizeFor`, whose tuple
-    // return would be the only allocation left anywhere in a round.
-    setArenaSize(w, w.playerCount)
+    // The arena no longer scales with headcount — the map defines it. Spawns are authored
+    // far apart, so a small lobby on a big map still starts with breathing room.
     w.clockMs = 0
     for (let s = 0; s < MAX_PLAYERS; s++) {
       w.itTimeMs[s] = 0

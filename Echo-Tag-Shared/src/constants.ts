@@ -17,16 +17,31 @@ export const SNAPSHOT_HZ = 20 // server -> client broadcast rate
 export const INPUT_HZ = 20 // client -> server input rate
 export const INTERP_DELAY_MS = 100 // remote players rendered this far behind
 
-// ── Arena ────────────────────────────────────────────────────────────────────
-/** Base play area in simulation units. Rendered letterboxed to 16:9. */
-export const ARENA_BASE_W = 1600
-export const ARENA_BASE_H = 900
-/** Area scales with headcount so echo density per player stays constant (GDD §6). */
-export const ARENA_AREA_PER_PLAYER = (ARENA_BASE_W * ARENA_BASE_H) / 12
+// ── World / maps ─────────────────────────────────────────────────────────────
+// The arena is no longer a single screen-sized box. Rounds play on one of four fixed,
+// authored maps — a world larger than the viewport that players walk *through*, with the
+// camera following them (see docs/adr/0005-camera-follow-maps.md). All maps share one tile
+// grid size so every buffer in the simulation stays fixed-allocation.
+export const MAP_TILE = 80 // world units per tile; corridors are 2-3 tiles wide
+export const MAP_TILES_X = 40
+export const MAP_TILES_Y = 22
+export const MAP_W = MAP_TILE * MAP_TILES_X // 3200
+export const MAP_H = MAP_TILE * MAP_TILES_Y // 1760
+export const MAP_COUNT = 4
+
+/**
+ * The most world a player is ever shown, per axis. The camera zooms so the view never
+ * exceeds this window — roughly a 2.5x2.2 screens' walk to cross a map — which is what
+ * makes the world feel like a place rather than a diagram, and it is a fairness bound:
+ * no device gets to see more of the maze than another.
+ */
+export const VIEW_MAX_W = 1280
+export const VIEW_MAX_H = 820
 
 // ── Players ──────────────────────────────────────────────────────────────────
 export const MAX_PLAYERS = 12
 export const MIN_PLAYERS = 8 // bots top up to at least this many
+export const SPAWNS_PER_MAP = 12 // authored spawn tiles, one per possible player
 export const PLAYER_RADIUS = 18
 export const PLAYER_SPEED = 240 // units/sec
 export const IT_SPEED_MULT = 1.12 // "slightly faster" (GDD §3.2)

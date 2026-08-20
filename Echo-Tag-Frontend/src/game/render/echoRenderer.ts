@@ -9,8 +9,6 @@ import {
 } from '@echo-tag/shared'
 import { Particle, ParticleContainer, type Texture } from 'pixi.js'
 import { ECHO, ECHO_GRID_H, ECHO_GRID_W } from './templates.ts'
-import { pixelScale } from './squareBody.ts'
-import { toScreenX, toScreenY, type Camera } from '../engine/camera.ts'
 
 /**
  * Echo silhouettes.
@@ -39,6 +37,8 @@ const PARKED = -9999
  * The reasoning, and why generous is the safe direction, is in constants.ts.
  */
 const CELL_WORLD = (ECHO_RADIUS * 2 * ECHO_VISUAL_SCALE) / ECHO_GRID_W
+/** Particle scale for one echo cell at world size (8px texture). Camera handles zoom. */
+const WORLD_SCALE = CELL_WORLD / 8
 
 export interface EchoLayer {
   container: ParticleContainer
@@ -76,8 +76,8 @@ export const createEchoLayer = (texture: Texture): EchoLayer => {
         texture,
         x: PARKED,
         y: PARKED,
-        scaleX: 1 / 8,
-        scaleY: 1 / 8,
+        scaleX: WORLD_SCALE,
+        scaleY: WORLD_SCALE,
         anchorX: 0.5,
         anchorY: 0.5,
         tint,
@@ -97,11 +97,9 @@ export const renderEchoes = (
   prevBodyX: Float32Array,
   prevBodyY: Float32Array,
   alpha: number,
-  cam: Camera,
 ): void => {
   const { particles, stride, bodies } = layer
-  const cellPx = CELL_WORLD * cam.scale
-  const scale = pixelScale(cellPx)
+  const scale = WORLD_SCALE
 
   for (let b = 0; b < bodies; b++) {
     const base = b * stride
@@ -118,8 +116,6 @@ export const renderEchoes = (
     // lerping between ticks walks that path smoothly rather than stepping at 20Hz.
     const wx = prevBodyX[b]! + (world.bodyX[b]! - prevBodyX[b]!) * alpha
     const wy = prevBodyY[b]! + (world.bodyY[b]! - prevBodyY[b]!) * alpha
-    const sx = toScreenX(cam, wx)
-    const sy = toScreenY(cam, wy)
 
     // Age 4..60 samples. The oldest end of the trail fades almost out, which is what tells
     // a player which way a trail is travelling — the single most important piece of
@@ -132,8 +128,8 @@ export const renderEchoes = (
 
     for (let i = 0; i < stride; i++) {
       const particle = particles[base + i]!
-      particle.x = sx + (ECHO.gx[i]! - (ECHO_GRID_W - 1) / 2) * cellPx
-      particle.y = sy + (ECHO.gy[i]! - (ECHO_GRID_H - 1) / 2) * cellPx
+      particle.x = wx + (ECHO.gx[i]! - (ECHO_GRID_W - 1) / 2) * CELL_WORLD
+      particle.y = wy + (ECHO.gy[i]! - (ECHO_GRID_H - 1) / 2) * CELL_WORLD
       particle.scaleX = scale
       particle.scaleY = scale
       particle.alpha = a

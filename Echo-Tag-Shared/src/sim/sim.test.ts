@@ -17,14 +17,20 @@ import { encodeInput, IDLE_INPUT, inputX, inputY } from './input.ts'
 import { leaderboard } from './leaderboard.ts'
 import { enterPhase, stepWorld } from './step.ts'
 import { setIt } from './tag.ts'
-import { addPlayer, arenaScaleFor, createWorld, removePlayer, type World } from './world.ts'
+import { addPlayer, createWorld, removePlayer, type World } from './world.ts'
+import { MAP_TILE } from '../constants.ts'
 
 const EAST = encodeInput(1, 0)
 const WEST = encodeInput(-1, 0)
 
-/** A world in Playing with `n` players, ready to receive inputs. */
-const playing = (n: number, seed = 1): World => {
-  const w = createWorld(seed)
+/**
+ * A world in Playing with `n` players, ready to receive inputs.
+ * Defaults to map 1 (Pillars) — the most open map, so tests that place players by hand can
+ * use known-open coordinates: every non-pillar row (e.g. tile rows 2, 6, 11, 16, 20) is
+ * open from border to border.
+ */
+const playing = (n: number, seed = 1, mapIndex = 1): World => {
+  const w = createWorld(seed, mapIndex)
   for (let i = 0; i < n; i++) addPlayer(w, false)
   enterPhase(w, RoundPhase.Countdown)
   const inputs = new Uint8Array(MAX_PLAYERS)
@@ -120,12 +126,13 @@ describe('echoes', () => {
     const inputs = new Uint8Array(MAX_PLAYERS)
     inputs[0] = EAST
 
-    // Park slot 0 at the left edge with a clear run east, and everyone else far away.
-    w.x[0] = PLAYER_RADIUS * 2
-    w.y[0] = w.arenaH / 2
+    // Park slot 0 at the west end of Pillars' open row 6 (fully open border to border),
+    // and everyone else far away in the open row 2.
+    w.x[0] = MAP_TILE * 2
+    w.y[0] = MAP_TILE * 6.5
     for (let s = 1; s < MAX_PLAYERS; s++) {
-      w.x[s] = w.arenaW - PLAYER_RADIUS * 2
-      w.y[s] = PLAYER_RADIUS * 2
+      w.x[s] = w.arenaW - MAP_TILE * 2
+      w.y[s] = MAP_TILE * 2.5
     }
 
     const x0 = w.x[0]!
@@ -141,11 +148,11 @@ describe('echoes', () => {
     const w = playing(MAX_PLAYERS)
     const inputs = new Uint8Array(MAX_PLAYERS)
 
-    w.x[0] = PLAYER_RADIUS * 2
-    w.y[0] = w.arenaH / 2
+    w.x[0] = MAP_TILE * 2
+    w.y[0] = MAP_TILE * 6.5
     for (let s = 1; s < MAX_PLAYERS; s++) {
-      w.x[s] = w.arenaW - PLAYER_RADIUS * 2
-      w.y[s] = PLAYER_RADIUS * 2
+      w.x[s] = w.arenaW - MAP_TILE * 2
+      w.y[s] = MAP_TILE * 2.5
     }
 
     inputs[0] = EAST
@@ -238,10 +245,9 @@ describe('scoring', () => {
     const w = playing(3)
     setIt(w, 1)
     const inputs = new Uint8Array(MAX_PLAYERS)
-    // Park them in three separate corners so no tag interrupts the measurement.
-    // Coordinates must be arena-relative: the arena scales with headcount, so absolute
-    // positions from a 12-player arena would be clamped into the same corner here.
-    const m = PLAYER_RADIUS * 2
+    // Park them far apart in known-open Pillars tiles so no tag interrupts the measurement.
+    // (Tile (1,1) inside the border, the open map centre, and tile (38,20).)
+    const m = MAP_TILE * 1.5
     w.x[0] = m
     w.y[0] = m
     w.x[1] = w.arenaW / 2
@@ -316,6 +322,38 @@ describe('round lifecycle', () => {
 })
 
 describe('arena', () => {
+  it('stops a player at an interior wall', () => {
+    const w = playing(1) // Pillars
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    // A pillar occupies tiles x 4-5 of row 3-4. Approach its west face along its row.
+    w.x[0] = MAP_TILE * 2.5
+    w.y[0] = MAP_TILE * 3.5
+    w.vx[0] = 0
+    w.vy[0] = 0
+    inputs[0] = EAST
+    run(w, 60, inputs) // 3 seconds straight at the pillar
+
+    const faceX = MAP_TILE * 4 // west face of the pillar
+    assert.ok(
+      w.x[0]! <= faceX - PLAYER_RADIUS + 0.1,
+      `walked through a wall: x=${w.x[0]!.toFixed(1)}, face at ${faceX}`,
+    )
+    assert.ok(w.x[0]! > MAP_TILE * 3, 'never approached the wall at all')
+  })
+
+  it('slides along a wall instead of sticking to it', () => {
+    const w = playing(1) // Pillars
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    // Run diagonally into the long border wall: the southward component must survive.
+    w.x[0] = MAP_TILE * 2
+    w.y[0] = MAP_TILE * 6.5
+    inputs[0] = encodeInput(-1, 1) // south-west, into the west border
+    const y0 = w.y[0]!
+    run(w, 30, inputs)
+    assert.ok(w.x[0]! >= PLAYER_RADIUS + MAP_TILE - 0.1, 'pushed inside the border wall')
+    assert.ok(w.y[0]! - y0 > PLAYER_SPEED * 0.5, `did not slide along the wall: moved ${(w.y[0]! - y0).toFixed(1)}`)
+  })
+
   it('never lets a player leave the bounds', () => {
     const w = playing(12)
     const inputs = new Uint8Array(MAX_PLAYERS)
@@ -336,11 +374,6 @@ describe('arena', () => {
     }
   })
 
-  it('grows with headcount to hold echo density steady', () => {
-    assert.ok(arenaScaleFor(4) < arenaScaleFor(8))
-    assert.ok(arenaScaleFor(8) < arenaScaleFor(12))
-    assert.ok(Math.abs(arenaScaleFor(MAX_PLAYERS) - 1) < 0.001, 'full lobby is the base size')
-  })
 })
 
 describe('joining and leaving', () => {

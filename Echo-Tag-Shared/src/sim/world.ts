@@ -1,13 +1,15 @@
 import {
-  ARENA_AREA_PER_PLAYER,
-  ARENA_BASE_H,
-  ARENA_BASE_W,
   ECHO_BODIES_PER_PLAYER,
   ECHO_SAMPLES,
+  MAP_COUNT,
+  MAP_H,
+  MAP_TILES_X,
+  MAP_W,
   MAX_PLAYERS,
   PLAYER_COLORS,
-  PLAYER_RADIUS,
+  SPAWNS_PER_MAP,
 } from '../constants.ts'
+import { MAPS, tileCenterX, tileCenterY, type GameMap } from '../maps/index.ts'
 import { createSpatialHash, MAX_BODIES, type SpatialHash } from '../math/spatial-hash.ts'
 import { nextState, seedFrom, toFloat } from '../math/rng.ts'
 import { NO_SLOT, RoundPhase, type Slot, type StepEvents } from '../types.ts'
@@ -35,8 +37,11 @@ export interface World {
   seed: number
 
   // ── Arena ──
+  /** Always MAP_W / MAP_H — kept as fields so nothing downstream hardcodes map size. */
   arenaW: number
   arenaH: number
+  /** The authored map this round plays on. Swapped between rounds, never mid-round. */
+  map: GameMap
 
   // ── Players (length MAX_PLAYERS) ──
   active: Uint8Array
@@ -90,25 +95,16 @@ export interface World {
 }
 
 /**
- * Arena grows with headcount so echo density per player stays roughly constant (GDD §6).
- * Returns the scale factor rather than a tuple so the caller allocates nothing.
+ * Swaps the round's map. Only meaningful between rounds — the next enterPhase(Countdown)
+ * respawns everyone on it. All maps share one grid size, so no buffer resizes.
  */
-export const arenaScaleFor = (playerCount: number): number => {
-  const n = playerCount < 2 ? 2 : playerCount
-  return Math.sqrt((n * ARENA_AREA_PER_PLAYER) / (ARENA_BASE_W * ARENA_BASE_H))
+export const setMap = (w: World, mapIndex: number): void => {
+  w.map = MAPS[((mapIndex % MAP_COUNT) + MAP_COUNT) % MAP_COUNT]!
 }
 
-/** Applies the headcount-derived arena size in place. */
-export const setArenaSize = (w: World, playerCount: number): void => {
-  const scale = arenaScaleFor(playerCount)
-  w.arenaW = Math.round(ARENA_BASE_W * scale)
-  w.arenaH = Math.round(ARENA_BASE_H * scale)
-}
-
-export const createWorld = (seed: number): World => {
-  const scale = arenaScaleFor(MAX_PLAYERS)
-  const arenaW = Math.round(ARENA_BASE_W * scale)
-  const arenaH = Math.round(ARENA_BASE_H * scale)
+export const createWorld = (seed: number, mapIndex = 0): World => {
+  const arenaW = MAP_W
+  const arenaH = MAP_H
   return {
     tick: 0,
     phase: RoundPhase.Lobby,
@@ -119,6 +115,7 @@ export const createWorld = (seed: number): World => {
 
     arenaW,
     arenaH,
+    map: MAPS[((mapIndex % MAP_COUNT) + MAP_COUNT) % MAP_COUNT]!,
 
     active: new Uint8Array(MAX_PLAYERS),
     isBot: new Uint8Array(MAX_PLAYERS),
@@ -159,27 +156,23 @@ export const random = (w: World): number => {
 }
 
 /**
- * Places players on a circle inset from the arena edge, with a random rotation from
- * the world seed. A ring rather than random scatter, so nobody spawns already cornered
- * and the opening 30 seconds read as "open space" (GDD §5).
+ * Places players on the map's authored spawn tiles, rotated by a seed-derived offset so the
+ * same map does not deal the same matchups every round. Spawns are authored far apart, so
+ * the opening 30 seconds read as "open space" (GDD §5) even inside a maze.
  */
 export const spawnAll = (w: World): void => {
-  const cx = w.arenaW / 2
-  const cy = w.arenaH / 2
-  const radius = Math.min(w.arenaW, w.arenaH) * 0.36
-  const offset = random(w) * Math.PI * 2
+  const offset = Math.floor(random(w) * SPAWNS_PER_MAP)
 
   let i = 0
-  const n = w.playerCount || 1
   for (let s = 0; s < MAX_PLAYERS; s++) {
     if (w.active[s] === 0) continue
-    const a = offset + (i / n) * Math.PI * 2
-    w.x[s] = cx + Math.cos(a) * radius
-    w.y[s] = cy + Math.sin(a) * radius
+    const slot = ((i + offset) % SPAWNS_PER_MAP) * 2
+    w.x[s] = tileCenterX(w.map.spawns[slot]!)
+    w.y[s] = tileCenterY(w.map.spawns[slot + 1]!)
     w.vx[s] = 0
     w.vy[s] = 0
-    // Face the middle: the arena's action starts there, and it looks intentional.
-    w.facing[s] = a + Math.PI
+    // Face the map's centre: the action is inward, and it looks intentional.
+    w.facing[s] = Math.atan2(w.arenaH / 2 - w.y[s]!, w.arenaW / 2 - w.x[s]!)
     i++
   }
 
@@ -262,19 +255,21 @@ export const leastItTimeSlot = (w: World, exclude: Slot = NO_SLOT): Slot => {
 }
 
 /**
- * Picks the emptiest of a fixed set of candidate points. Deterministic (candidates come
- * from the world's RNG stream) and allocation-free.
+ * Picks the emptiest of a fixed set of candidate tiles, sampled from the map's open-tile
+ * list — so a candidate can never be inside a wall. Deterministic (candidates come from the
+ * world's RNG stream) and allocation-free.
  */
 const placeInOpenSpace = (w: World, slot: Slot): void => {
   const CANDIDATES = 8
-  const margin = PLAYER_RADIUS * 3
+  const open = w.map.openTiles
   let bestX = w.arenaW / 2
   let bestY = w.arenaH / 2
   let bestScore = -1
 
   for (let c = 0; c < CANDIDATES; c++) {
-    const px = margin + random(w) * (w.arenaW - margin * 2)
-    const py = margin + random(w) * (w.arenaH - margin * 2)
+    const tile = open[Math.floor(random(w) * open.length)]!
+    const px = tileCenterX(tile % MAP_TILES_X)
+    const py = tileCenterY(Math.floor(tile / MAP_TILES_X))
 
     // Score = distance to the nearest other live player. Higher is better.
     let nearest = Number.POSITIVE_INFINITY

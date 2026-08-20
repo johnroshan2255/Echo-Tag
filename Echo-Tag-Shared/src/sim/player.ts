@@ -1,5 +1,5 @@
 import { ACCEL, FRICTION, IT_SPEED_MULT, PLAYER_RADIUS, PLAYER_SPEED, TICK_MS } from '../constants.ts'
-import { resolveEchoCollisions } from '../math/collision.ts'
+import { resolveEchoCollisions, resolveWallCollisions } from '../math/collision.ts'
 import { IDLE_INPUT, INPUT_DIR_X, INPUT_DIR_Y, INPUT_MAG } from './input.ts'
 import type { World } from './world.ts'
 
@@ -58,6 +58,8 @@ export const integratePlayer = (w: World, slot: number, packedInput: number): vo
   w.lastInput[slot] = packedInput
 
   resolveEchoCollisions(w, slot)
+  // Walls resolve after echoes and win — an echo may not shove a player inside a wall.
+  resolveWallCollisions(w, slot)
 
   // ── Arena clamp, inlined ──
   // Written straight into the typed arrays rather than via a local. Holding the position

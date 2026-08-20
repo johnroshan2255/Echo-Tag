@@ -9,7 +9,9 @@
     ".": "./src/index.ts",
     "./sim": "./src/sim/index.ts",
     "./protocol": "./src/protocol/index.ts",
-    "./constants": "./src/constants.ts"
+    "./constants": "./src/constants.ts",
+    "./ai": "./src/ai/bot.ts",
+    "./maps": "./src/maps/index.ts"
   },
   "scripts": {
     "build": "tsc --build",

@@ -2,6 +2,9 @@ import {
   COLLISION_PASSES,
   ECHO_BODIES_PER_PLAYER,
   ECHO_GRACE_SAMPLES,
+  MAP_TILE,
+  MAP_TILES_X,
+  MAP_TILES_Y,
   MAX_PLAYERS,
   PLAYER_RADIUS,
   SLIDE_FRICTION,
@@ -121,6 +124,88 @@ export const resolveEchoCollisions = (w: World, slot: number): number => {
   w.y[slot] = py
   w.vx[slot] = pvx
   w.vy[slot] = pvy
+  return contacts
+}
+
+/**
+ * Circle-vs-tile-grid wall resolution.
+ *
+ * Walks the 3x3 tiles around the player; for each wall tile, finds the closest point on the
+ * tile's AABB to the player's centre and pushes the player out along that axis. Because the
+ * push is axis-aligned per contact, sliding along a wall falls out for free — the component
+ * of motion parallel to the wall is untouched, which is the same "walls redirect, never
+ * stop" feel rule the echo collision follows.
+ *
+ * Runs after echo resolution, and wins: an echo may not shove a player inside a wall. All
+ * state stays in function locals and typed-array writes for the same allocation reasons
+ * documented above.
+ */
+export const resolveWallCollisions = (w: World, slot: number): number => {
+  const walls = w.map.walls
+  const r = PLAYER_RADIUS
+  let px = w.x[slot]!
+  let py = w.y[slot]!
+  let contacts = 0
+
+  // Two passes settle a corner (two tiles pushing at once) without jitter.
+  for (let pass = 0; pass < 2; pass++) {
+    const before = contacts
+    const tx0 = ((px - r) / MAP_TILE) | 0
+    const ty0 = ((py - r) / MAP_TILE) | 0
+    const tx1 = ((px + r) / MAP_TILE) | 0
+    const ty1 = ((py + r) / MAP_TILE) | 0
+
+    for (let ty = ty0; ty <= ty1; ty++) {
+      if (ty < 0 || ty >= MAP_TILES_Y) continue
+      for (let tx = tx0; tx <= tx1; tx++) {
+        if (tx < 0 || tx >= MAP_TILES_X) continue
+        if (walls[ty * MAP_TILES_X + tx] === 0) continue
+
+        const x0 = tx * MAP_TILE
+        const y0 = ty * MAP_TILE
+        // Closest point on the tile AABB to the player's centre.
+        const cx = px < x0 ? x0 : px > x0 + MAP_TILE ? x0 + MAP_TILE : px
+        const cy = py < y0 ? y0 : py > y0 + MAP_TILE ? y0 + MAP_TILE : py
+        const dx = px - cx
+        const dy = py - cy
+        const dSq = dx * dx + dy * dy
+        if (dSq >= r * r) continue
+        contacts++
+
+        if (dSq > 0.0001) {
+          // Push out along the contact normal.
+          const d = Math.sqrt(dSq)
+          const push = r - d
+          px += (dx / d) * push
+          py += (dy / d) * push
+          // Kill only the into-wall velocity component.
+          const nx = dx / d
+          const ny = dy / d
+          const into = w.vx[slot]! * nx + w.vy[slot]! * ny
+          if (into < 0) {
+            w.vx[slot] = w.vx[slot]! - nx * into
+            w.vy[slot] = w.vy[slot]! - ny * into
+          }
+        } else {
+          // Centre is inside the tile (teleport/reconcile edge case): eject along the
+          // shallowest axis rather than guessing a normal.
+          const midX = x0 + MAP_TILE / 2
+          const midY = y0 + MAP_TILE / 2
+          if (Math.abs(px - midX) > Math.abs(py - midY)) {
+            px = px > midX ? x0 + MAP_TILE + r : x0 - r
+            w.vx[slot] = 0
+          } else {
+            py = py > midY ? y0 + MAP_TILE + r : y0 - r
+            w.vy[slot] = 0
+          }
+        }
+      }
+    }
+    if (contacts === before) break
+  }
+
+  w.x[slot] = px
+  w.y[slot] = py
   return contacts
 }
 

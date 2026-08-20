@@ -19,8 +19,10 @@ import { BODY, GRID_GROUND, GRID_W } from './templates.ts'
 /** Grid cells per world unit: the avatar is two player-radii wide. */
 export const CELL_WORLD = (PLAYER_RADIUS * 2) / GRID_W
 
-/** Texture is 8px square; a particle's scale is therefore (target px / 8). */
+/** Texture is 8px square; scale maps it onto one world-unit cell. */
 const TEXTURE_PX = 8
+/** Particle scale that renders one body cell at world size. Camera handles zoom. */
+export const WORLD_SCALE = CELL_WORLD / TEXTURE_PX
 
 export interface BodyLayer {
   container: ParticleContainer
@@ -58,8 +60,8 @@ export const createBodyLayer = (texture: Texture): BodyLayer => {
         texture,
         x: -9999, // parked until the first frame places it
         y: -9999,
-        scaleX: 1 / TEXTURE_PX,
-        scaleY: 1 / TEXTURE_PX,
+        scaleX: WORLD_SCALE,
+        scaleY: WORLD_SCALE,
         anchorX: 0.5,
         anchorY: 0.5,
         tint,
@@ -71,9 +73,6 @@ export const createBodyLayer = (texture: Texture): BodyLayer => {
 
   return { container, particles, stride }
 }
-
-/** Converts a target on-screen square size in device pixels into a particle scale. */
-export const pixelScale = (sizePx: number): number => sizePx / TEXTURE_PX
 
 /** Grid-space to avatar-local world offset. The avatar is anchored at its feet. */
 export const cellOffsetX = (gx: number): number => (gx - (GRID_W - 1) / 2) * CELL_WORLD

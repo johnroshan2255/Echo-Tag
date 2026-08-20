@@ -1,6 +1,5 @@
 import { IT_RING_COLOR, PLAYER_RADIUS, type World } from '@echo-tag/shared'
 import { Container, Sprite, type Texture } from 'pixi.js'
-import { toScreenX, toScreenY, type Camera } from '../engine/camera.ts'
 
 /**
  * The "It" indicator.
@@ -48,7 +47,6 @@ export const renderFx = (
   prevX: Float32Array,
   prevY: Float32Array,
   alpha: number,
-  cam: Camera,
   nowMs: number,
 ): void => {
   const it = world.itSlot
@@ -62,8 +60,8 @@ export const renderFx = (
   const wy = prevY[it]! + (world.y[it]! - prevY[it]!) * alpha
 
   const pulse = 0.5 + 0.5 * Math.sin(nowMs * 0.007)
-  const x = toScreenX(cam, wx)
-  const y = toScreenY(cam, wy)
+  const x = wx
+  const y = wy
 
   // Two concentric halos rather than one. A single soft glow at low alpha disappears into a
   // busy arena; a bright tight core plus a wide slow pulse survives twelve trails crossing
@@ -71,7 +69,7 @@ export const renderFx = (
   layer.ring.visible = true
   layer.ring.x = x
   layer.ring.y = y
-  const outer = PLAYER_RADIUS * cam.scale * (6.4 + pulse * 1.8)
+  const outer = PLAYER_RADIUS * (6.4 + pulse * 1.8)
   layer.ring.width = outer
   layer.ring.height = outer
   layer.ring.alpha = 0.34 + pulse * 0.3
@@ -79,7 +77,7 @@ export const renderFx = (
   layer.core.visible = true
   layer.core.x = x
   layer.core.y = y
-  const inner = PLAYER_RADIUS * cam.scale * (2.6 + pulse * 0.35)
+  const inner = PLAYER_RADIUS * (2.6 + pulse * 0.35)
   layer.core.width = inner
   layer.core.height = inner
   layer.core.alpha = 0.6 + pulse * 0.25

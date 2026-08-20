@@ -9,6 +9,7 @@ opinions — if it isn't checkable, it isn't a gate.
 | 0 | Foundation & toolchain | 0.5 d | ✅ done |
 | 1 | Deterministic simulation, headless | 2 d | ✅ done |
 | 2 | Renderer & feel | 3 d | ✅ done |
+| 2.5 | World pivot: 4 maps + follow camera | 1 d | ✅ done |
 | 3 | Input | 1 d | next |
 | 4 | Server authority | 2 d | |
 | 5 | Prediction & smoothing | 2 d | |
@@ -206,6 +207,29 @@ the honest answer, and the dead space is where Phase 7's HUD and banner slot go.
 sets `data-rotate-hint` when the arena drops below 45% of viewport height; Phase 7 decides
 what to do with it.
 
+## Phase 2.5 — World pivot ✅  (user direction)
+
+After playing the Phase 2 build, the project owner redirected: keep the character, drop the
+god-view. The game is now a Koira/Limbo-style *place* — four fixed authored maps larger than
+the screen, a camera that follows you, same rules. The fork "side-view platformer vs
+top-down follow camera" was asked explicitly; owner chose top-down. Full reasoning and
+consequences in [ADR 0005](adr/0005-camera-follow-maps.md).
+
+Built: `maps/` (four painted-in-code maps + validation tests: connectivity, spawn spread,
+no one-exit cells), tile wall collision in the shared sim, the follow camera with a
+fairness-bounded zoom, world-space rendering (camera transforms one container; renderers
+never see it), wall rendering with floor-facing rims, the off-screen threat arrow, and the
+shared synthetic driver both bench and client now use.
+
+**Gate:** all of `npm run verify` + `npm run check` on the pivoted world. ✅
+44/44 tests · 41 tags/round on the bench · 76-78 fps · 5 draw calls (map added one) ·
+109.3KB brotli total.
+
+Visual lesson that cost a round-trip: three near-identical darks (void, wall, floor) made
+walls dissolve into the floor, and outlining whole wall rects striped every vertical wall.
+Walls now fill near-void and get a lit rim only on faces that touch floor — the line the
+player actually needs. Judged, as always, from `npm run crop`, not the viewport screenshot.
+
 ## Phase 3 — Input `~1 day`  ← next
 
 - `input/detect.ts` — pointer-type + coarse-media detection. Keyboard and touch stay live
@@ -229,6 +253,7 @@ edges, in both orientations. This one is hands-on; there is no substitute.
 - On join: one `writeHistoryBlob` (~2.9KB) so a late arrival sees the identical maze.
 - `matchmaking/filter.ts` — accept joins only in Lobby or early Playing; nobody should drop
   into a dense arena at 2:40.
+- Round metadata now includes the map index (one byte); the join blob is unchanged.
 - `net/antiCheat.ts` — clamp input magnitude, reject stale sequence numbers, cap per-tick
   position delta.
 

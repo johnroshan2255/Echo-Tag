@@ -35,12 +35,13 @@ import {
   TICK_MS,
   addPlayer,
   createWorld,
-  encodeInput,
   enterPhase,
   leaderboard,
   stepWorld,
+  syntheticDriver,
   type World,
 } from '../../Echo-Tag-Shared/src/index.ts'
+import { createDriverState } from '../../Echo-Tag-Shared/src/ai/bot.ts'
 
 const ROUND_TICKS = Math.ceil(ROUND_DURATION_MS / TICK_MS) // 3600
 const COUNTDOWN_TICKS = Math.ceil(COUNTDOWN_MS / TICK_MS) // 30
@@ -54,22 +55,19 @@ const ALLOC_TOLERANCE = 4
 const CONTROL_MIN_SIGNAL = 15
 
 // ── Synthetic input driver ───────────────────────────────────────────────────
-// Deliberately NOT the real bot AI (that is Phase 6) — this measures the simulation, not
-// the brains. Each agent orbits with a per-slot phase offset and reverses periodically,
-// which is what actually stresses the sim: constant direction changes produce dense,
-// self-intersecting echo trails and plenty of collision contacts.
+// The shared placeholder driver (ai/bot.ts) — the same one the client uses until Phase 6.
+// It steers each slot at rotating map waypoints and escapes when wall-stuck, which is what
+// stresses the sim on an authored map: wall grinding, corridor crossings and dense,
+// self-intersecting trails. (The pre-map orbit pattern just ground the border walls.)
 const inputs = new Uint8Array(MAX_PLAYERS)
+const driver = createDriverState()
 
-const driveInputs = (tick: number): void => {
-  for (let s = 0; s < MAX_PLAYERS; s++) {
-    const phase = s * 0.7 + tick * 0.06
-    const flip = (tick + s * 17) % 71 < 35 ? 1 : -1
-    inputs[s] = encodeInput(Math.cos(phase) * flip, Math.sin(phase * 1.3) * flip)
-  }
+const driveInputs = (w: World, tick: number): void => {
+  syntheticDriver(w, inputs, tick, driver)
 }
 
 const newRound = (seed: number): World => {
-  const w = createWorld(seed)
+  const w = createWorld(seed, seed % 4) // rotate the benched map with the seed
   for (let i = 0; i < MAX_PLAYERS; i++) addPlayer(w, i >= 4) // 4 "humans", 8 bots
   enterPhase(w, RoundPhase.Countdown)
   return w
@@ -78,7 +76,7 @@ const newRound = (seed: number): World => {
 const warmUp = (ticks: number): void => {
   const w = newRound(0x5eed01)
   for (let t = 0; t < ticks; t++) {
-    driveInputs(t)
+    driveInputs(w, t)
     stepWorld(w, inputs)
     if (w.phase === RoundPhase.Leaderboard) enterPhase(w, RoundPhase.Countdown)
   }
@@ -93,7 +91,7 @@ if (childMode === 'floor' || childMode === 'real' || childMode === 'control') {
   const w = newRound(0xa110c)
   const sink: unknown[] = []
   for (let t = 0; t < ALLOC_TICKS; t++) {
-    driveInputs(t)
+    driveInputs(w, t)
     if (childMode !== 'floor') stepWorld(w, inputs)
     if (childMode === 'control') {
       sink.length = 0
@@ -114,7 +112,7 @@ let tags = 0
 
 const wallStart = performance.now()
 for (let t = 0; t < TICKS; t++) {
-  driveInputs(t)
+  driveInputs(world, t)
   const t0 = performance.now()
   const ev = stepWorld(world, inputs)
   samples[measured++] = performance.now() - t0
@@ -167,7 +165,7 @@ Echo Tag — simulation benchmark
     control ${String(control).padStart(4)}   (+ 1 object / tick)   → ${control - floor} above floor, proves the gate can see garbage
 
   ROUND
-    arena ${world.arenaW}x${world.arenaH}   ${liveBodies} solid echo bodies   ${tags} tags
+    map "${world.map.name}"   ${world.arenaW}x${world.arenaH}   ${liveBodies} solid echo bodies   ${tags} tags
     clock ${(world.clockMs / 1000).toFixed(1)}s of ${ROUND_DURATION_MS / 1000}s   phase ${world.phase}
     best  rank 1  ${(board[0]!.itTimeMs / 1000).toFixed(1)}s as It
     worst rank ${board.length}  ${(board[board.length - 1]!.itTimeMs / 1000).toFixed(1)}s as It

@@ -116,11 +116,12 @@ npm run check
   3/3 viewports green
 ```
 
-On screen today: the Canvas2D preview and Play button, then the real arena — 12 avatars of
-168 squares each, 180 solid echo bodies, procedural walk/idle/squash animation, the "It" halo,
-and a letterboxed 16:9 camera. Slot 0 is yours on WASD or the arrow keys; the other eleven run
-a deterministic synthetic input pattern (**not** AI — that is Phase 6) so the renderer can be
-judged at full density.
+On screen today: the Canvas2D preview and Play button, then the world — one of **four fixed
+maps** (Foundry, Pillars, Serpentine, Warrens, rotating each round) that is larger than the
+screen, with the camera following your avatar and an edge arrow marking the off-screen threat:
+It when you are prey, your nearest target when you are It. 12 avatars of 168 squares, 180
+solid echo bodies, procedural animation, the "It" halo. Slot 0 is yours on WASD or the arrow
+keys; the other eleven run the shared synthetic driver (**not** AI — that is Phase 6).
 
 There is no server yet. The world is local, the round loops, and nothing is networked; Phase 4
 swaps the local `World` for a server-authoritative one without touching the render path.

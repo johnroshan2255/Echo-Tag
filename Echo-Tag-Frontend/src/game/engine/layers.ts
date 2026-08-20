@@ -3,44 +3,61 @@ import { createArenaLayer, layoutArena, type ArenaLayer } from '../render/arena.
 import { createBodyLayer, type BodyLayer } from '../render/squareBody.ts'
 import { createEchoLayer, type EchoLayer } from '../render/echoRenderer.ts'
 import { createFxLayer, type FxLayer } from '../render/fx.ts'
-import type { Camera } from './camera.ts'
+import { createIndicatorLayer, type IndicatorLayer } from '../render/indicator.ts'
+import type { GameMap } from '@echo-tag/shared'
 
 /**
- * The scene graph, and the z-order that makes the arena readable.
+ * The scene graph.
  *
- * Order matters for gameplay clarity, not just aesthetics:
- *   arena   — the floor, so everything else has something to sit on
- *   echoes  — *under* live players, because a player must never be hidden by an obstacle
- *   ring    — the It halo, under the bodies so it haloes rather than washes them out
- *   players — always on top; the live actors are what a player is tracking
+ * Two roots with different coordinate systems:
  *
- * Five children, and the two particle containers each batch to a single draw call, so the
- * whole arena costs roughly five draws regardless of how dense it gets.
+ *   worldRoot — everything that exists *in the world*, in world units. The follow camera
+ *   transforms this one container per frame; nothing inside it knows the camera exists.
+ *   Z-order inside is a gameplay-clarity ruling: floor, then echoes (an obstacle must never
+ *   hide a live player), then the It halo (under bodies so it haloes rather than washes),
+ *   then players on top — the live actors are what a player is tracking.
+ *
+ *   overlay — screen-space UI drawn by the engine (the off-screen threat arrow). Fixed to
+ *   the viewport, untouched by the camera.
+ *
+ * Six children total; the two particle containers each batch to one draw call.
  */
 
 export interface Layers {
   stage: Container
+  worldRoot: Container
+  overlay: Container
   arena: ArenaLayer
   echoes: EchoLayer
   fx: FxLayer
   bodies: BodyLayer
+  indicator: IndicatorLayer
 }
 
 export const createLayers = (square: Texture, glow: Texture): Layers => {
   const stage = new Container()
+  const worldRoot = new Container()
+  const overlay = new Container()
+
   const arena = createArenaLayer()
   const echoes = createEchoLayer(square)
   const fx = createFxLayer(glow)
   const bodies = createBodyLayer(square)
+  const indicator = createIndicatorLayer()
 
-  stage.addChild(arena.container)
-  stage.addChild(echoes.container)
-  stage.addChild(fx.container)
-  stage.addChild(bodies.container)
+  worldRoot.addChild(arena.container)
+  worldRoot.addChild(echoes.container)
+  worldRoot.addChild(fx.container)
+  worldRoot.addChild(bodies.container)
+  overlay.addChild(indicator.container)
 
-  return { stage, arena, echoes, fx, bodies }
+  stage.addChild(worldRoot)
+  stage.addChild(overlay)
+
+  return { stage, worldRoot, overlay, arena, echoes, fx, bodies, indicator }
 }
 
-export const layoutLayers = (layers: Layers, cam: Camera): void => {
-  layoutArena(layers.arena, cam)
+/** Rebuilds the map drawing. Call on map change. */
+export const setLayersMap = (layers: Layers, map: GameMap): void => {
+  layoutArena(layers.arena, map)
 }

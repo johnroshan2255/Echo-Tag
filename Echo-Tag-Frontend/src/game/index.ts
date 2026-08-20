@@ -1,43 +1,43 @@
 import {
   BG_COLOR,
   ECHO_BODIES_PER_PLAYER,
+  MAP_COUNT,
   MAX_PLAYERS,
   RoundPhase,
   addPlayer,
   createWorld,
-  encodeInput,
   enterPhase,
+  setMap,
   stepWorld,
+  syntheticDriver,
   type World,
 } from '@echo-tag/shared'
+import { createDriverState } from '@echo-tag/shared/ai'
 import { WebGLRenderer } from 'pixi.js'
-import { createCamera, fitCamera, wantsRotate } from './engine/camera.ts'
-import { createLayers, layoutLayers } from './engine/layers.ts'
+import { applyCamera, createCamera, followCamera, resizeCamera, snapCamera } from './engine/camera.ts'
+import { createLayers, setLayersMap } from './engine/layers.ts'
 import { advance, createTicker } from './engine/ticker.ts'
 import { glowTexture, squareTexture } from './engine/textures.ts'
 import { createKeyboard } from './input/keyboard.ts'
 import { renderEchoes } from './render/echoRenderer.ts'
 import { renderFx } from './render/fx.ts'
+import { renderIndicator } from './render/indicator.ts'
 import { createAnimState, onTagged, renderPlayers } from './render/playerRenderer.ts'
 import { BODY, ECHO } from './render/templates.ts'
 
 /**
- * Phase 2: the arena, rendered and playable locally.
+ * The walk-through world (docs/adr/0005).
  *
- * The local player is slot 0 on the keyboard. The other eleven are driven by a deterministic
- * synthetic input pattern — *not* AI, which is Phase 6. They exist so the renderer can be
- * judged at full density: twelve avatars and 180 solid echo bodies is the load that matters,
- * and it is the load Phase 2's exit gate is written against.
+ * You are slot 0. The map is bigger than the screen; the camera follows you; the other
+ * eleven slots run the shared synthetic driver until Phase 6 gives them brains. Rounds
+ * rotate through the four maps.
  *
- * Phase 4 replaces the local `World` with a server-authoritative one. Nothing in the render
- * path changes when that happens — it reads a `World`, and does not care who advanced it.
- *
- * Two decisions in here are permanent:
- *   1. `WebGLRenderer` is constructed directly. Going through `Application` or
- *      `autoDetectRenderer` pulls the WebGPU adapter and the `Assets` loader into the
- *      bundle; there is no flag that removes them afterwards.
- *   2. Every texture is generated at runtime, so the game fetches no assets at all.
+ * Still local-only: Phase 4 swaps this local `World` for a server-authoritative one, and
+ * because every renderer reads a `World` in world coordinates, nothing below the world
+ * swap changes when that happens.
  */
+
+const LOCAL_SLOT = 0
 
 export interface GameHandle {
   destroy(): void
@@ -50,7 +50,7 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
     width: canvas.width,
     height: canvas.height,
     background: BG_COLOR,
-    antialias: false, // flat colour on flat colour; AA costs fill rate for nothing
+    antialias: false,
     resolution: 1, // the boot chunk already sized the canvas in device pixels
     autoDensity: false,
     powerPreference: 'high-performance',
@@ -63,15 +63,19 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
   const ticker = createTicker()
   const anim = createAnimState()
   const keyboard = createKeyboard()
+  const driver = createDriverState()
 
   // ── World ──
-  const world: World = createWorld(0xec07a6)
-  for (let i = 0; i < MAX_PLAYERS; i++) addPlayer(world, i !== 0)
+  let mapIndex = 0
+  const world: World = createWorld(0xec07a6, mapIndex)
+  for (let i = 0; i < MAX_PLAYERS; i++) addPlayer(world, i !== LOCAL_SLOT)
   enterPhase(world, RoundPhase.Countdown)
+  setLayersMap(layers, world.map)
+  snapCamera(cam, world.x[LOCAL_SLOT]!, world.y[LOCAL_SLOT]!)
 
   const inputs = new Uint8Array(MAX_PLAYERS)
 
-  // Previous-tick positions, for render interpolation. Allocated once.
+  // Previous-tick positions for render interpolation. Allocated once.
   const prevX = new Float32Array(MAX_PLAYERS)
   const prevY = new Float32Array(MAX_PLAYERS)
   const bodyCount = MAX_PLAYERS * ECHO_BODIES_PER_PLAYER
@@ -82,7 +86,7 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
   prevBodyX.set(world.bodyX)
   prevBodyY.set(world.bodyY)
 
-  // ── Layout ──
+  // ── Viewport ──
   let viewW = canvas.width
   let viewH = canvas.height
 
@@ -95,16 +99,12 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
       canvas.height = viewH
     }
     renderer.resize(viewW, viewH)
-    fitCamera(cam, world.arenaW, world.arenaH, viewW, viewH)
-    layoutLayers(layers, cam)
-    document.documentElement.dataset.rotateHint = wantsRotate(cam, viewW, viewH) ? '1' : '0'
+    resizeCamera(cam, viewW, viewH)
   }
   relayout()
   addEventListener('resize', relayout, { passive: true })
 
   // ── Simulation step ──
-  // Declared outside the frame callback so it is a stable function reference rather than a
-  // closure allocated every frame.
   let simTick = 0
   const step = (): void => {
     prevX.set(world.x)
@@ -112,18 +112,24 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
     prevBodyX.set(world.bodyX)
     prevBodyY.set(world.bodyY)
 
-    // Slot 0 is the player. The rest orbit and periodically reverse, which is what actually
-    // stresses the renderer: direction changes produce dense, self-intersecting trails.
-    inputs[0] = keyboard.packed
-    for (let s = 1; s < MAX_PLAYERS; s++) {
-      const phase = s * 0.7 + simTick * 0.06
-      const flip = (simTick + s * 17) % 71 < 35 ? 1 : -1
-      inputs[s] = encodeInput(Math.cos(phase) * flip, Math.sin(phase * 1.3) * flip)
-    }
+    inputs[LOCAL_SLOT] = keyboard.packed
+    syntheticDriver(world, inputs, simTick, driver, LOCAL_SLOT)
 
     const ev = stepWorld(world, inputs)
     if (ev.tagCount > 0) onTagged(anim, ev.tagTo, performance.now())
-    if (world.phase === RoundPhase.Leaderboard) enterPhase(world, RoundPhase.Countdown)
+
+    // Round over: rotate to the next map and go again. (Phase 7 puts the leaderboard here.)
+    if (world.phase === RoundPhase.Leaderboard) {
+      mapIndex = (mapIndex + 1) % MAP_COUNT
+      setMap(world, mapIndex)
+      enterPhase(world, RoundPhase.Countdown)
+      setLayersMap(layers, world.map)
+      prevX.set(world.x)
+      prevY.set(world.y)
+      prevBodyX.set(world.bodyX)
+      prevBodyY.set(world.bodyY)
+      snapCamera(cam, world.x[LOCAL_SLOT]!, world.y[LOCAL_SLOT]!)
+    }
     simTick++
   }
 
@@ -133,10 +139,7 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
   let frames = 0
 
   const frame = (now: number): void => {
-    // The first frame's delta spans renderer init and first shader compile — hundreds of
-    // milliseconds of work that did not happen "during" gameplay. Feeding it to the
-    // accumulator would ask the sim to catch up on time that never elapsed for the player,
-    // so the first frame only establishes the clock.
+    // The first frame's delta spans renderer init and shader compile; it only sets the clock.
     if (frames === 0) {
       last = now
       frames = 1
@@ -149,11 +152,18 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
     frames++
 
     advance(ticker, dt, step)
-
     const a = ticker.alpha
-    renderEchoes(layers.echoes, world, prevBodyX, prevBodyY, a, cam)
-    renderFx(layers.fx, world, prevX, prevY, a, cam, now)
-    renderPlayers(layers.bodies, world, prevX, prevY, a, cam, anim, now)
+
+    // Camera follows the interpolated local player, so it is as smooth as the avatar.
+    const lx = prevX[LOCAL_SLOT]! + (world.x[LOCAL_SLOT]! - prevX[LOCAL_SLOT]!) * a
+    const ly = prevY[LOCAL_SLOT]! + (world.y[LOCAL_SLOT]! - prevY[LOCAL_SLOT]!) * a
+    followCamera(cam, lx, ly, world.vx[LOCAL_SLOT]!, world.vy[LOCAL_SLOT]!, dt)
+    applyCamera(cam, layers.worldRoot, viewW, viewH)
+
+    renderEchoes(layers.echoes, world, prevBodyX, prevBodyY, a)
+    renderFx(layers.fx, world, prevX, prevY, a, now)
+    renderPlayers(layers.bodies, world, prevX, prevY, a, anim, now)
+    renderIndicator(layers.indicator, world, LOCAL_SLOT, cam, viewW, viewH, now)
 
     renderer.render(layers.stage)
     raf = requestAnimationFrame(frame)
@@ -164,7 +174,6 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
   const root = document.documentElement
   root.dataset.game = 'running'
   root.dataset.particles = String(MAX_PLAYERS * BODY.count + bodyCount * ECHO.count)
-  root.dataset.bodySquares = String(BODY.count)
   Object.defineProperty(globalThis, '__echoTag', {
     configurable: true,
     get: () => ({
@@ -176,7 +185,9 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
       itSlot: world.itSlot,
       liveEchoBodies: world.bodyLive.reduce((s: number, v: number) => s + v, 0),
       arena: [world.arenaW, world.arenaH],
+      map: world.map.name,
       camScale: cam.scale,
+      cam: [Math.round(cam.cx), Math.round(cam.cy)],
     }),
   })
 

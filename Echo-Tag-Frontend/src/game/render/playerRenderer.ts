@@ -7,9 +7,8 @@ import {
   type World,
 } from '@echo-tag/shared'
 import { Part, BODY } from './templates.ts'
-import { CELL_WORLD, cellOffsetX, cellOffsetY, pixelScale, type BodyLayer } from './squareBody.ts'
+import { CELL_WORLD, cellOffsetX, cellOffsetY, WORLD_SCALE, type BodyLayer } from './squareBody.ts'
 import { armSwing, blink, eyeShift, idleBob, legLift, scatter, squashAcross, stretchAlong } from '../anim/procedural.ts'
-import { toScreenX, toScreenY, type Camera } from '../engine/camera.ts'
 
 /**
  * Per-frame transform of every live player's particle slice.
@@ -18,6 +17,10 @@ import { toScreenX, toScreenY, type Camera } from '../engine/camera.ts'
  * frame. It therefore does three things and no more — writes `x`, `y`, `scaleX`, `scaleY`
  * and `tint` on existing particles. It never walks the template to *decide* which cells
  * exist, never constructs a Particle, and never allocates.
+ *
+ * Everything is written in WORLD coordinates. The follow camera transforms the world-root
+ * container once per frame; no renderer knows the camera exists. That is what makes the
+ * camera pivot a container-transform change rather than a rewrite of every renderer.
  *
  * The template is walked for geometry only; part tags drive the animation, which is what
  * keeps `templates.ts` (what an avatar *is*) separate from this file (what it is *doing*).
@@ -62,13 +65,11 @@ export const renderPlayers = (
   prevX: Float32Array,
   prevY: Float32Array,
   alpha: number,
-  cam: Camera,
   anim: PlayerAnimState,
   nowMs: number,
 ): void => {
   const { particles, stride } = layer
-  const cellPx = CELL_WORLD * cam.scale
-  const baseScale = pixelScale(cellPx)
+  const baseScale = WORLD_SCALE
   const itSlot = world.itSlot
 
   for (let p = 0; p < MAX_PLAYERS; p++) {
@@ -89,8 +90,6 @@ export const renderPlayers = (
     // at 20Hz while the screen runs at 60.
     const wx = prevX[p]! + (world.x[p]! - prevX[p]!) * alpha
     const wy = prevY[p]! + (world.y[p]! - prevY[p]!) * alpha
-    const sx = toScreenX(cam, wx)
-    const sy = toScreenY(cam, wy)
 
     const vx = world.vx[p]!
     const vy = world.vy[p]!
@@ -163,8 +162,8 @@ export const renderPlayers = (
         oy += (ry / len) * push * CELL_WORLD
       }
 
-      particle.x = sx + ox * cam.scale
-      particle.y = sy + oy * cam.scale
+      particle.x = wx + ox
+      particle.y = wy + oy
       particle.scaleX = cellScaleX
       particle.scaleY = cellScaleY
       // The It player gets white edge cells: a bright outline around the silhouette itself,
