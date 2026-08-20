@@ -22,12 +22,18 @@ const COOLDOWN_TICKS = Math.ceil(TAG_COOLDOWN_MS / TICK_MS)
 
 export const isImmune = (w: World, slot: Slot): boolean => w.tick < w.immuneUntilTick[slot]!
 
-/** Transfers "It" to `to`, applying both timers. Safe to call with NO_SLOT. */
+/** Transfers "It" to `to`, applying all three timers. Safe to call with NO_SLOT. */
 export const setIt = (w: World, to: Slot): void => {
   const from = w.itSlot
   w.itSlot = to
   if (to !== NO_SLOT) w.immuneUntilTick[to] = w.tick + IMMUNITY_TICKS
-  if (from !== NO_SLOT && from !== to) w.tagCooldownUntilTick[from] = w.tick + COOLDOWN_TICKS
+  if (from !== NO_SLOT && from !== to) {
+    w.tagCooldownUntilTick[from] = w.tick + COOLDOWN_TICKS
+    // No tag-backs: the pair overlap at the moment of transfer (bodies pass through),
+    // so the previous It is off the new It's menu for the immunity window.
+    w.tagBackSlot = from
+    w.tagBackUntilTick = w.tick + IMMUNITY_TICKS
+  }
 }
 
 /**
@@ -49,6 +55,7 @@ export const resolveTags = (w: World): boolean => {
     if (s === it || w.active[s] === 0) continue
     if (w.hiddenIn[s] !== NO_SLOT) continue // inside a wardrobe: unseen, untouchable
     if (w.tick < w.immuneUntilTick[s]!) continue
+    if (s === w.tagBackSlot && w.tick < w.tagBackUntilTick) continue // no tag-backs
 
     const dx = w.x[s]! - ix
     const dy = w.y[s]! - iy

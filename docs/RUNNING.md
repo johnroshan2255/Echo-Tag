@@ -128,7 +128,9 @@ npm run check
 On screen today: the Canvas2D preview and Play button, then the world — one of **four fixed
 maps** (Foundry, Pillars, Serpentine, Warrens, rotating each round), larger than the screen,
 seen through **fog of war**: a warm lantern pool around your avatar, roughly one room of
-visibility, and dusk beyond. Rooms are furnished — rugs, tables, crates, potted plants,
+visibility, and dusk beyond. Echo trails are **visual only** (ADR 0012) — nobody collides
+with them; they are the breadcrumbs the ghost hunts you by, and how you spot the ghost's
+own path through the dark. Rooms are furnished — rugs, tables, crates, potted plants,
 standing lamps whose light pools glow through the fog — and fourteen **doors** open as
 anyone approaches and drift shut behind them. Everything is audible: door creaks carry to
 about twice vision range (a creak in the dark means someone is moving there), footsteps pan

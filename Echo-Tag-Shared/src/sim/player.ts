@@ -1,5 +1,5 @@
 import { ACCEL, FRICTION, IT_SPEED_MULT, PLAYER_RADIUS, PLAYER_SPEED, TICK_MS } from '../constants.ts'
-import { resolveEchoCollisions, resolveWallCollisions } from '../math/collision.ts'
+import { resolveWallCollisions } from '../math/collision.ts'
 import { IDLE_INPUT, INPUT_DIR_X, INPUT_DIR_Y, INPUT_MAG } from './input.ts'
 import type { World } from './world.ts'
 
@@ -57,8 +57,10 @@ export const integratePlayer = (w: World, slot: number, packedInput: number): vo
   w.y[slot] = w.y[slot]! + vy * DT
   w.lastInput[slot] = packedInput
 
-  resolveEchoCollisions(w, slot)
-  // Walls resolve after echoes and win — an echo may not shove a player inside a wall.
+  // Echo trails are VISUAL ONLY (ADR 0012, owner decision): nobody collides with a ghost
+  // image — the ghost hunts by *reading* trails, not by being walled by them. The old
+  // resolver still exists one import away in math/collision.ts; re-enabling solidity (or
+  // the trails-block-only-the-ghost variant) is a single call restored here.
   resolveWallCollisions(w, slot)
 
   // ── Arena clamp, inlined ──

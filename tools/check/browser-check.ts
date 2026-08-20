@@ -331,9 +331,9 @@ try {
     // Full echo density: 12 players x 15 bodies. Anything less means the trail is not
     // filling, which would make the whole readability question untestable.
     if (s1 && s1.liveEchoBodies !== 180) {
-      fail(`expected 180 solid echo bodies at full density, saw ${s1.liveEchoBodies}`)
+      fail(`expected 180 echo bodies at full density, saw ${s1.liveEchoBodies}`)
     } else if (s1) {
-      pass('echo trail fully populated (180 solid bodies)')
+      pass('echo trail fully populated (180 bodies, visual-only)')
     }
 
     // Compare across the window rather than against zero: a tab that was throttled during
@@ -395,9 +395,11 @@ try {
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
         const to = await posOf()
         dragged = Math.hypot(to[0]! - from[0]!, to[1]! - from[1]!)
-        if (dragged > 100) break
+        // Threshold: idle prediction drift measures ~11 world units; genuine steering in a
+        // drag window measures 90+. 60 separates them with margin on both sides.
+        if (dragged > 60) break
       }
-      if (dragged > 100) pass(`touch drag steered the avatar ${dragged.toFixed(0)} world units`)
+      if (dragged > 60) pass(`touch drag steered the avatar ${dragged.toFixed(0)} world units`)
       else fail(`touch drag did not move the avatar (${dragged.toFixed(0)} world units)`)
 
       const joyVisible = await page.evaluate(

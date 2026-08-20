@@ -3,7 +3,6 @@ import { describe, it } from 'node:test'
 import {
   ECHO_BODIES_PER_PLAYER,
   ECHO_DELAY_MS,
-  ECHO_GRACE_SAMPLES,
   IT_SPEED_MULT,
   MAX_PLAYERS,
   PLAYER_RADIUS,
@@ -144,7 +143,7 @@ describe('echoes', () => {
     assert.ok(travelled > PLAYER_SPEED * 1.5, `only travelled ${travelled.toFixed(1)}`)
   })
 
-  it('makes an older self-echo solid when you double back', () => {
+  it('is purely visual: doubling back through your own trail is unimpeded (ADR 0012)', () => {
     const w = playing(MAX_PLAYERS)
     const inputs = new Uint8Array(MAX_PLAYERS)
 
@@ -160,18 +159,33 @@ describe('echoes', () => {
     const turnX = w.x[0]!
 
     inputs[0] = WEST
-    run(w, 60, inputs) // now drive back into it
+    run(w, 60, inputs) // drive straight back through it
 
     const backtracked = turnX - w.x[0]!
     const unobstructed = (PLAYER_SPEED * (60 * TICK_MS)) / 1000
     assert.ok(
-      backtracked < unobstructed * 0.9,
-      `expected the trail to impede the return trip: went back ${backtracked.toFixed(1)} of a possible ${unobstructed.toFixed(1)}`,
+      backtracked > unobstructed * 0.9,
+      `a ghost image blocked movement: went back ${backtracked.toFixed(1)} of ${unobstructed.toFixed(1)}`,
     )
   })
 
-  it('keeps grace shorter than the trail so most of it stays solid', () => {
-    assert.ok(ECHO_GRACE_SAMPLES < ECHO_BODIES_PER_PLAYER * 4)
+  it('never makes a standing player solid via their own stacked echoes', () => {
+    // The old solid-trail rule had an emergent quirk: an idle player's echoes piled on top
+    // of them and made their position a de-facto wall. Visual-only trails must not.
+    const w = playing(2)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    w.x[0] = MAP_TILE * 4
+    w.y[0] = MAP_TILE * 6.5
+    w.x[1] = MAP_TILE * 8
+    w.y[1] = MAP_TILE * 6.5
+    run(w, 80, inputs) // slot 1 stands still long enough to stack a full echo pile
+
+    inputs[0] = EAST
+    run(w, 60, inputs)
+    assert.ok(
+      w.x[0]! > MAP_TILE * 8 + PLAYER_RADIUS * 2,
+      `walked into a standing player's echo pile and stuck: x=${w.x[0]!.toFixed(0)}`,
+    )
   })
 })
 

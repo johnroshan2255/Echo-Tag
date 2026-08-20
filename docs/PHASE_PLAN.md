@@ -304,6 +304,14 @@ check's mobile viewports synthesize touch drags and require real movement. Traps
 
 Remaining input work folds into Phase 7: `gameplayStart()` on first input for Poki.
 
+## Phase 5.6 — Trails become visual-only ✅  (owner decision)
+
+Collider audit at the owner's request, then their call between three offered variants:
+echo trails no longer collide — they are pure information, the breadcrumbs of the hunt.
+Retiring solidity exposed a masked design gap (instant tag-backs between the overlapping
+pair at transfer), fixed with a no-tag-backs window and caught by a failing test within
+minutes. [ADR 0012](adr/0012-trails-visual-only.md).
+
 ## Phase 5.5 — Decay + Poki deployability ✅  (user direction)
 
 Cracked floors and walls, eroded edges, crumbled corners — no room keeps four intact

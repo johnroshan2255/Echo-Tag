@@ -77,6 +77,14 @@ export interface World {
 
   /** Who is "It", or NO_SLOT during Lobby/Leaderboard. */
   itSlot: Slot
+  /**
+   * No-tag-backs: the player who just handed "It" over, untouchable BY the new It for the
+   * immunity window. Solid trails used to keep the pair physically separated after a tag;
+   * with visual-only trails (ADR 0012) they overlap, and without this rule the new It
+   * returns the tag instantly and the role ping-pongs.
+   */
+  tagBackSlot: Slot
+  tagBackUntilTick: number
   /** Number of occupied slots. Derived, kept in sync by add/remove. */
   playerCount: number
 
@@ -152,6 +160,8 @@ export const createWorld = (seed: number, mapIndex = 0): World => {
     lastInput: new Uint8Array(MAX_PLAYERS),
 
     itSlot: NO_SLOT,
+    tagBackSlot: NO_SLOT,
+    tagBackUntilTick: 0,
     playerCount: 0,
 
     histX: new Float32Array(MAX_PLAYERS * ECHO_SAMPLES),

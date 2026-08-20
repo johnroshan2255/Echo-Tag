@@ -14,16 +14,16 @@ import { CELL_SIZE, CONTACT_RADIUS } from './spatial-hash.ts'
 import type { World } from '../sim/world.ts'
 
 /**
- * Player-vs-echo resolution.
+ * Player-vs-echo resolution — RETIRED from the tick by ADR 0012.
  *
- * Design note that is *not* a polish detail: contact resolves by pushing the player out
- * along the contact normal and keeping the tangential component of their velocity — they
- * slide along the obstacle rather than stopping dead. A hard stop makes an echo read as
- * a bug ("I'm stuck") instead of as geometry, and it is the difference between the arena
- * feeling tight and feeling broken. See docs/COMPETITIVE_ANALYSIS.md risk #3.
+ * The owner's final ruling: ghost trails are visual only — breadcrumbs the hunter reads,
+ * never geometry. This resolver is deliberately kept, tested-adjacent and one call-site
+ * away (sim/player.ts), because the design explored three variants (solid to all, solid
+ * to none, solid only to the ghost) and may yet revisit; deleting it would turn a design
+ * toggle back into an engineering task.
  *
- * Live players do not collide with each other. Bodies would let a player wall off a
- * corridor by standing in it, and would make tag contact ambiguous — the design wants
+ * Live players do not collide with each other either. Bodies would let a player wall off
+ * a corridor by standing in it, and would make tag contact ambiguous — the design wants
  * tags decided by overlap, not by physics.
  *
  * PERFORMANCE, and the reason this function is one long inlined loop instead of a tidy

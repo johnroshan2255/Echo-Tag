@@ -169,7 +169,7 @@ Echo Tag — simulation benchmark
     control ${String(control).padStart(4)}   (+ 1 object / tick)   → ${control - floor} above floor, proves the gate can see garbage
 
   ROUND
-    map "${world.map.name}"   ${world.arenaW}x${world.arenaH}   ${liveBodies} solid echo bodies   ${tags} tags
+    map "${world.map.name}"   ${world.arenaW}x${world.arenaH}   ${liveBodies} echo bodies (visual)   ${tags} tags
     clock ${(world.clockMs / 1000).toFixed(1)}s of ${ROUND_DURATION_MS / 1000}s   phase ${world.phase}
     best  rank 1  ${(board[0]!.itTimeMs / 1000).toFixed(1)}s as It
     worst rank ${board.length}  ${(board[board.length - 1]!.itTimeMs / 1000).toFixed(1)}s as It
