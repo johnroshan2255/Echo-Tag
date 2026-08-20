@@ -7,6 +7,7 @@ import {
 } from '../constants.ts'
 import { NO_SLOT, RoundPhase, type Slot, type StepEvents } from '../types.ts'
 import { updateDoors } from './door.ts'
+import { dealKeys, updateWardrobes } from './wardrobe.ts'
 import { rebuildEchoBodies, sampleHistory } from './echo.ts'
 import { IDLE_INPUT } from './input.ts'
 import { integratePlayer } from './player.ts'
@@ -67,9 +68,13 @@ export const stepWorld = (w: World, inputs: Uint8Array): StepEvents => {
   // Doors first, from last tick's positions, so a door starts opening the tick you arrive
   // and this tick's collision already sees the new openness.
   updateDoors(w)
+  // Then wardrobes: entries and exits resolve before integration, so a player who slips
+  // inside this tick does not also move this tick.
+  updateWardrobes(w, inputs)
 
   for (let s = 0; s < MAX_PLAYERS; s++) {
     if (w.active[s] === 0) continue
+    if (w.hiddenIn[s] !== NO_SLOT) continue // inside a wardrobe: no movement, no collision
     integratePlayer(w, s, inputs[s] ?? IDLE_INPUT)
   }
 
@@ -108,7 +113,10 @@ export const enterPhase = (w: World, phase: RoundPhase): void => {
       w.tagCooldownUntilTick[s] = 0
       w.lastInput[s] = IDLE_INPUT
     }
+    w.hiddenIn.fill(-1)
+    w.wardrobeCooldownUntil.fill(0)
     spawnAll(w)
+    dealKeys(w)
     setIt(w, pickStartingIt(w))
     rebuildEchoBodies(w)
   }

@@ -4,6 +4,7 @@ import {
   MAP_COUNT,
   MAP_H,
   MAX_DOORS,
+  MAX_WARDROBES,
   MAP_TILES_X,
   MAP_W,
   MAX_PLAYERS,
@@ -45,6 +46,15 @@ export interface World {
   map: GameMap
   /** Openness per door slot, 0 (shut) .. 1 (open). Indexed by the map's door order. */
   doorOpen: Float32Array
+
+  // ── Wardrobes ──
+  /** Wardrobe index a player is hidden in, or NO_SLOT. Hidden = invisible + untaggable. */
+  hiddenIn: Int8Array
+  hiddenSinceTick: Int32Array
+  /** Per (player, wardrobe): tick until that wardrobe accepts that player again. */
+  wardrobeCooldownUntil: Int32Array
+  /** Per (player, wardrobe): 1 when the player holds this wardrobe's key. */
+  keys: Uint8Array
 
   // ── Players (length MAX_PLAYERS) ──
   active: Uint8Array
@@ -104,6 +114,8 @@ export interface World {
 export const setMap = (w: World, mapIndex: number): void => {
   w.map = MAPS[((mapIndex % MAP_COUNT) + MAP_COUNT) % MAP_COUNT]!
   w.doorOpen.fill(0)
+  w.hiddenIn.fill(NO_SLOT)
+  w.wardrobeCooldownUntil.fill(0)
 }
 
 export const createWorld = (seed: number, mapIndex = 0): World => {
@@ -121,6 +133,10 @@ export const createWorld = (seed: number, mapIndex = 0): World => {
     arenaH,
     map: MAPS[((mapIndex % MAP_COUNT) + MAP_COUNT) % MAP_COUNT]!,
     doorOpen: new Float32Array(MAX_DOORS),
+    hiddenIn: new Int8Array(MAX_PLAYERS).fill(NO_SLOT),
+    hiddenSinceTick: new Int32Array(MAX_PLAYERS),
+    wardrobeCooldownUntil: new Int32Array(MAX_PLAYERS * MAX_WARDROBES),
+    keys: new Uint8Array(MAX_PLAYERS * MAX_WARDROBES),
 
     active: new Uint8Array(MAX_PLAYERS),
     isBot: new Uint8Array(MAX_PLAYERS),
@@ -251,6 +267,7 @@ export const leastItTimeSlot = (w: World, exclude: Slot = NO_SLOT): Slot => {
   let bestMs = Number.POSITIVE_INFINITY
   for (let s = 0; s < MAX_PLAYERS; s++) {
     if (w.active[s] === 0 || s === exclude) continue
+    if (w.hiddenIn[s] !== NO_SLOT) continue // never hand "It" to someone inside a wardrobe
     if (w.itTimeMs[s]! < bestMs) {
       bestMs = w.itTimeMs[s]!
       best = s

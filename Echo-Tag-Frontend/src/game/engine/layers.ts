@@ -5,6 +5,7 @@ import { createEchoLayer, type EchoLayer } from '../render/echoRenderer.ts'
 import { createDoorLayer, type DoorLayer } from '../render/doors.ts'
 import { createFxLayer, setLampsFromMap, type FxLayer } from '../render/fx.ts'
 import { createIndicatorLayer, type IndicatorLayer } from '../render/indicator.ts'
+import { createMarkerLayer, type MarkerLayer } from '../render/wardrobeMarkers.ts'
 import { createAmbienceLayer, seedAmbience, type AmbienceLayer } from '../render/ambience.ts'
 import { createFogLayer, type FogLayer } from '../render/fog.ts'
 import type { GameMap } from '@echo-tag/shared'
@@ -36,6 +37,7 @@ export interface Layers {
   echoes: EchoLayer
   fx: FxLayer
   bodies: BodyLayer
+  markers: MarkerLayer
   fog: FogLayer
   indicator: IndicatorLayer
 }
@@ -51,6 +53,7 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
   const echoes = createEchoLayer(square)
   const fx = createFxLayer(glow)
   const bodies = createBodyLayer(square)
+  const markers = createMarkerLayer()
   const fog = createFogLayer(fogTex)
   const indicator = createIndicatorLayer()
 
@@ -60,6 +63,7 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
   worldRoot.addChild(echoes.container)
   worldRoot.addChild(fx.container)
   worldRoot.addChild(bodies.container)
+  worldRoot.addChild(markers.container) // your keyholes float above everything in-world
   // Fog is screen-space, above the whole world — the arrow alone pierces it.
   overlay.addChild(fog.container)
   overlay.addChild(indicator.container)
@@ -67,7 +71,7 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
   stage.addChild(worldRoot)
   stage.addChild(overlay)
 
-  return { stage, worldRoot, overlay, arena, ambience, doors, echoes, fx, bodies, fog, indicator }
+  return { stage, worldRoot, overlay, arena, ambience, doors, echoes, fx, bodies, markers, fog, indicator }
 }
 
 /** Rebuilds the map drawing and re-seeds the set dressing. Call on map change. */

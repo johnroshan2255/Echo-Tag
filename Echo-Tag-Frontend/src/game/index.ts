@@ -3,6 +3,7 @@ import {
   ECHO_BODIES_PER_PLAYER,
   MAP_COUNT,
   MAX_PLAYERS,
+  NO_SLOT,
   RoundPhase,
   addPlayer,
   createWorld,
@@ -28,7 +29,8 @@ import { renderFx, renderLantern } from './render/fx.ts'
 import { renderIndicator } from './render/indicator.ts'
 import { createAnimState, onTagged, renderPlayers } from './render/playerRenderer.ts'
 import { BODY, ECHO } from './render/templates.ts'
-import { FOG_COLOR, FOG_MAX_ALPHA, VISION_CLEAR, VISION_MAX } from './theme.ts'
+import { renderMarkers } from './render/wardrobeMarkers.ts'
+import { FOG_COLOR, FOG_MAX_ALPHA, HIDDEN_VISION_SCALE, VISION_CLEAR, VISION_MAX } from './theme.ts'
 
 /**
  * The walk-through world (docs/adr/0005).
@@ -198,7 +200,9 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
     renderFx(layers.fx, world, prevX, prevY, a, now)
     renderLantern(layers.fx, lx, ly, now)
     renderPlayers(layers.bodies, world, prevX, prevY, a, anim, now)
-    if (!DEV_NOFOG) renderFog(layers.fog, cam, lx, ly, viewW, viewH)
+    renderMarkers(layers.markers, world, LOCAL_SLOT, now)
+    const hidden = world.hiddenIn[LOCAL_SLOT] !== NO_SLOT
+    if (!DEV_NOFOG) renderFog(layers.fog, cam, lx, ly, viewW, viewH, hidden ? HIDDEN_VISION_SCALE : 1)
     else layers.fog.sprite.visible = false
     renderIndicator(layers.indicator, world, LOCAL_SLOT, cam, viewW, viewH, now)
 

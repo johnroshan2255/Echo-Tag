@@ -47,6 +47,7 @@ export const resolveTags = (w: World): boolean => {
 
   for (let s = 0; s < MAX_PLAYERS; s++) {
     if (s === it || w.active[s] === 0) continue
+    if (w.hiddenIn[s] !== NO_SLOT) continue // inside a wardrobe: unseen, untouchable
     if (w.tick < w.immuneUntilTick[s]!) continue
 
     const dx = w.x[s]! - ix

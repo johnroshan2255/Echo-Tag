@@ -4,6 +4,7 @@ import {
   ECHO_RADIUS,
   ECHO_VISUAL_SCALE,
   MAX_PLAYERS,
+  NO_SLOT,
   PLAYER_COLORS,
   type World,
 } from '@echo-tag/shared'
@@ -124,6 +125,22 @@ export const renderEchoes = (
     const a = ECHO_ALPHA * (1 - ageFrac * 0.82)
 
     const owner = world.bodyOwner[b]!
+
+    // A hider's echo samples keep landing on the wardrobe centre, which would paint a
+    // coloured beacon on the cabinet. Mask any of their bodies that have contracted onto
+    // them; the outer trail keeps fading naturally — the evidence decays, as designed.
+    if (world.hiddenIn[owner] !== NO_SLOT) {
+      const hx = world.x[owner]! - wx
+      const hy = world.y[owner]! - wy
+      if (hx * hx + hy * hy < 48 * 48) {
+        for (let i = 0; i < stride; i++) {
+          particles[base + i]!.x = PARKED
+          particles[base + i]!.y = PARKED
+        }
+        continue
+      }
+    }
+
     const tint = PLAYER_COLORS[world.colorSlot[owner]! % PLAYER_COLORS.length]!
 
     for (let i = 0; i < stride; i++) {

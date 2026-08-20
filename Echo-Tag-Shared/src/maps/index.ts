@@ -1,4 +1,4 @@
-import { MAP_COUNT, MAP_TILE, MAP_TILES_X, MAP_TILES_Y, MAX_DOORS, SPAWNS_PER_MAP, TILE_FURNITURE } from '../constants.ts'
+import { MAP_COUNT, MAP_TILE, MAP_TILES_X, MAP_TILES_Y, MAX_DOORS, MAX_WARDROBES, SPAWNS_PER_MAP, TILE_FURNITURE } from '../constants.ts'
 
 /**
  * The four maps.
@@ -24,6 +24,7 @@ export const Decor = {
   Rug: 0, // 3x2 tiles of soft carpet, anchored at its top-left tile
   Lamp: 1, // a standing lamp; the renderer gives it a warm light pool
   Plant: 2, // a potted plant
+  Window: 3, // a lit pane set into a wall tile — pure architecture, walls become a house
 } as const
 export type Decor = (typeof Decor)[keyof typeof Decor]
 
@@ -44,6 +45,12 @@ export interface GameMap {
   readonly doors: Int16Array
   /** Decorative props as (type, tx, ty) triples. Never collide, never networked. */
   readonly decor: Int16Array
+  /**
+   * Wardrobes as (tx, ty, exitTx, exitTy) quads, at most MAX_WARDROBES. The wardrobe tile
+   * itself is painted TILE_FURNITURE (solid); the exit tile is the open neighbour a hider
+   * steps out onto, resolved at build time so the simulation never searches.
+   */
+  readonly wardrobes: Int16Array
 }
 
 const TX = MAP_TILES_X
@@ -88,6 +95,7 @@ const finish = (
   spawns: number[],
   doors: number[] = [],
   decor: number[] = [],
+  wardrobeTiles: number[] = [], // (tx, ty) pairs; exits are resolved here
 ): GameMap => {
   if (spawns.length !== SPAWNS_PER_MAP * 2) {
     throw new Error(`${name}: ${spawns.length / 2} spawns, need ${SPAWNS_PER_MAP}`)
@@ -106,6 +114,33 @@ const finish = (
       throw new Error(`${name}: door ${d / 3} at (${tx},${ty}) is not in an open doorway`)
     }
   }
+  if (wardrobeTiles.length / 2 > MAX_WARDROBES) {
+    throw new Error(`${name}: ${wardrobeTiles.length / 2} wardrobes, max ${MAX_WARDROBES}`)
+  }
+  const wardrobes: number[] = []
+  for (let i = 0; i < wardrobeTiles.length; i += 2) {
+    const tx = wardrobeTiles[i]!
+    const ty = wardrobeTiles[i + 1]!
+    if (walls[ty * TX + tx] !== 0) throw new Error(`${name}: wardrobe at (${tx},${ty}) tile not free`)
+    walls[ty * TX + tx] = TILE_FURNITURE // the cabinet is solid
+    // Exit: the first open orthogonal neighbour. Every wardrobe must have one.
+    const exits = [[tx, ty + 1], [tx, ty - 1], [tx - 1, ty], [tx + 1, ty]] as const
+    const exit = exits.find(([ex, ey]) => walls[ey! * TX + ex!] === 0)
+    if (!exit) throw new Error(`${name}: wardrobe at (${tx},${ty}) has no open neighbour to exit onto`)
+    wardrobes.push(tx, ty, exit[0], exit[1])
+  }
+  // Wardrobe tiles were just made solid; rebuild the open list after them.
+  open.length = 0
+  for (let i = 0; i < walls.length; i++) if (walls[i] === 0) open.push(i)
+
+  // Windows must sit in a wall with at least one open side to shine into.
+  for (let i = 0; i < decor.length; i += 3) {
+    if (decor[i] !== Decor.Window) continue
+    const tx = decor[i + 1]!
+    const ty = decor[i + 2]!
+    if (walls[ty * TX + tx] === 0) throw new Error(`${name}: window at (${tx},${ty}) is not in a wall`)
+  }
+
   return {
     index,
     name,
@@ -114,6 +149,7 @@ const finish = (
     openTiles: new Int32Array(open),
     doors: new Int16Array(doors),
     decor: new Int16Array(decor),
+    wardrobes: new Int16Array(wardrobes),
   }
 }
 
@@ -152,6 +188,11 @@ const foundry = (): GameMap => {
     Decor.Lamp, 16, 9, Decor.Lamp, 23, 12,
     Decor.Plant, 1, 1, Decor.Plant, 38, 1, Decor.Plant, 1, 20, Decor.Plant, 38, 20,
     Decor.Plant, 7, 3, Decor.Plant, 32, 18,
+    Decor.Window, 12, 5, Decor.Window, 27, 16, Decor.Window, 19, 8, Decor.Window, 20, 13,
+    Decor.Window, 0, 6, Decor.Window, 39, 15,
+  ], [
+    // One hiding spot per quadrant.
+    3, 3, 36, 3, 3, 18, 36, 18,
   ])
 }
 
@@ -174,6 +215,10 @@ const pillars = (): GameMap => {
     Decor.Lamp, 20, 10,
     Decor.Plant, 3, 2, Decor.Plant, 36, 2, Decor.Plant, 3, 19, Decor.Plant, 36, 19,
     Decor.Plant, 19, 5, Decor.Plant, 20, 16,
+    Decor.Window, 0, 5, Decor.Window, 39, 5, Decor.Window, 0, 16, Decor.Window, 39, 16,
+  ], [
+    // The courtyard keeps two garden sheds.
+    7, 2, 32, 19,
   ])
 }
 
@@ -203,6 +248,10 @@ const serpentine = (): GameMap => {
   ], [
     Decor.Lamp, 32, 2, Decor.Lamp, 7, 6, Decor.Lamp, 32, 10, Decor.Lamp, 7, 14, Decor.Lamp, 32, 18,
     Decor.Plant, 1, 3, Decor.Plant, 38, 6, Decor.Plant, 1, 11, Decor.Plant, 38, 14, Decor.Plant, 1, 18,
+    Decor.Window, 10, 4, Decor.Window, 28, 8, Decor.Window, 10, 12, Decor.Window, 28, 16,
+  ], [
+    // Lane-end wardrobes: bolt-holes at the exact spots a chase corners you.
+    34, 2, 5, 10, 34, 13, 5, 18,
   ])
 }
 
@@ -236,6 +285,11 @@ const warrens = (): GameMap => {
     Decor.Lamp, 9, 2, Decor.Lamp, 30, 3, Decor.Lamp, 5, 17, Decor.Lamp, 33, 14,
     Decor.Lamp, 21, 10,
     Decor.Plant, 1, 1, Decor.Plant, 38, 20, Decor.Plant, 17, 12, Decor.Plant, 25, 1,
+    Decor.Window, 8, 6, Decor.Window, 24, 6, Decor.Window, 16, 11, Decor.Window, 32, 16,
+    Decor.Window, 0, 9, Decor.Window, 39, 13,
+  ], [
+    // The house map: a wardrobe in most chambers — this is where hiding lives.
+    2, 4, 37, 3, 13, 9, 29, 14, 6, 18, 34, 8,
   ])
 }
 
@@ -246,6 +300,13 @@ if (MAPS.length !== MAP_COUNT) throw new Error('MAP_COUNT out of sync with MAPS'
 /** Solid lookup (wall or furniture). Out-of-bounds counts as solid. */
 export const isWall = (map: GameMap, tx: number, ty: number): boolean =>
   tx < 0 || ty < 0 || tx >= MAP_TILES_X || ty >= MAP_TILES_Y || map.walls[ty * MAP_TILES_X + tx] !== 0
+
+/** World-space centre of a wardrobe. */
+export const wardrobeCenterX = (map: GameMap, i: number): number => (map.wardrobes[i * 4]! + 0.5) * MAP_TILE
+export const wardrobeCenterY = (map: GameMap, i: number): number => (map.wardrobes[i * 4 + 1]! + 0.5) * MAP_TILE
+/** World-space centre of a wardrobe's exit tile. */
+export const wardrobeExitX = (map: GameMap, i: number): number => (map.wardrobes[i * 4 + 2]! + 0.5) * MAP_TILE
+export const wardrobeExitY = (map: GameMap, i: number): number => (map.wardrobes[i * 4 + 3]! + 0.5) * MAP_TILE
 
 /** World-space centre of a door (the midpoint of its two tiles). */
 export const doorCenterX = (map: GameMap, d: number): number => {

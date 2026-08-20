@@ -15,6 +15,8 @@
 export interface AudioEngine {
   ctx: AudioContext | null
   master: GainNode | null
+  /** Master tone filter: wide open normally, clamped low while hiding in a wardrobe. */
+  tone: BiquadFilterNode | null
   /** Shared noise buffer — one second of white noise, reused by every noise-based voice. */
   noise: AudioBuffer | null
   muted: boolean
@@ -23,16 +25,22 @@ export interface AudioEngine {
 export const createAudioEngine = (): AudioEngine => {
   try {
     const Ctx = globalThis.AudioContext
-    if (!Ctx) return { ctx: null, master: null, noise: null, muted: true }
+    if (!Ctx) return { ctx: null, master: null, tone: null, noise: null, muted: true }
     const ctx = new Ctx()
 
     const master = ctx.createGain()
     master.gain.value = 0.55
+    // Master tone: everything routes through one lowpass so "inside a wardrobe" can muffle
+    // the entire world with a single parameter ramp.
+    const tone = ctx.createBiquadFilter()
+    tone.type = 'lowpass'
+    tone.frequency.value = 20_000
     // A gentle compressor keeps overlapping one-shots from ever spiking.
     const comp = ctx.createDynamicsCompressor()
     comp.threshold.value = -22
     comp.ratio.value = 8
-    master.connect(comp)
+    master.connect(tone)
+    tone.connect(comp)
     comp.connect(ctx.destination)
 
     const noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate)
@@ -40,9 +48,9 @@ export const createAudioEngine = (): AudioEngine => {
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
 
     void ctx.resume()
-    return { ctx, master, noise, muted: false }
+    return { ctx, master, tone, noise, muted: false }
   } catch {
-    return { ctx: null, master: null, noise: null, muted: true }
+    return { ctx: null, master: null, tone: null, noise: null, muted: true }
   }
 }
 
@@ -61,4 +69,10 @@ export const distanceGain = (dist: number, earshot: number): number => {
 export const panFor = (dx: number): number => {
   const p = dx / 600
   return p < -1 ? -1 : p > 1 ? 1 : p
+}
+
+/** Muffles or clears the whole mix — the inside-a-wardrobe ear. */
+export const setMuffled = (a: AudioEngine, muffled: boolean): void => {
+  if (!a.ctx || !a.tone) return
+  a.tone.frequency.setTargetAtTime(muffled ? 320 : 20_000, a.ctx.currentTime, 0.08)
 }

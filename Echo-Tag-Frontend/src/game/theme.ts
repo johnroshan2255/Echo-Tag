@@ -37,6 +37,17 @@ export const LAMP_LIGHT_RADIUS = 190
 export const LAMP_LIGHT_ALPHA = 0.15
 export const MAX_LAMPS = 12
 
+// ── Wardrobes & windows ──
+export const WARDROBE_FILL = 0x3c2b1e // darker timber than tables — a tall cabinet
+export const WARDROBE_PANEL = 0x51392a
+export const WARDROBE_HANDLE = 0xc9a05a
+/** Keyhole marker over wardrobes the local player can use right now. */
+export const KEY_MARKER = 0xffd9a3
+export const WINDOW_GLOW = 0xffe3ad
+export const WINDOW_FRAME = 0x2a2337
+/** How tightly the fog closes while you are inside a wardrobe: you see the door, no more. */
+export const HIDDEN_VISION_SCALE = 0.22
+
 // ── Doors ──
 export const DOOR_FILL = 0x6b4a2f // warm timber, clearly not hedge and not floor
 export const DOOR_EDGE = 0x8a6440

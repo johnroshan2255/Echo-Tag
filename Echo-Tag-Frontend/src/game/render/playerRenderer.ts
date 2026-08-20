@@ -1,6 +1,7 @@
 import {
   IT_RING_COLOR,
   MAX_PLAYERS,
+  NO_SLOT,
   PLAYER_COLORS,
   PLAYER_RADIUS,
   TAG_IMMUNITY_MS,
@@ -75,9 +76,8 @@ export const renderPlayers = (
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const base = p * stride
 
-    if (world.active[p] === 0) {
-      // Park rather than remove: adding or removing a particle forces Pixi to re-upload
-      // the container's static buffers, which is far more expensive than 168 idle quads.
+    if (world.active[p] === 0 || world.hiddenIn[p] !== NO_SLOT) {
+      // Hidden players are inside a wardrobe: invisible is the whole point.
       for (let i = 0; i < stride; i++) {
         const particle = particles[base + i]!
         particle.x = PARKED

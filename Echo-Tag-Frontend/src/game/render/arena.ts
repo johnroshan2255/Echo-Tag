@@ -4,6 +4,11 @@ import { Container, Graphics } from 'pixi.js'
 import {
   cosmeticRng,
   FLOOR,
+  WARDROBE_FILL,
+  WARDROBE_HANDLE,
+  WARDROBE_PANEL,
+  WINDOW_FRAME,
+  WINDOW_GLOW,
   FLOOR_SPECKLE,
   LAMP_HEAD,
   LAMP_POST,
@@ -115,6 +120,36 @@ export const layoutArena = (layer: ArenaLayer, map: GameMap): void => {
       }
       tx += run - 1
     }
+  }
+
+  // Wardrobes: tall cabinets on their (solid) tiles — double doors, handles, a plinth.
+  // Distinct from tables at a glance, because these are the ones you can step inside.
+  const wr = map.wardrobes
+  for (let i = 0; i < wr.length; i += 4) {
+    const x = wr[i]! * MAP_TILE
+    const y = wr[i + 1]! * MAP_TILE
+    g.rect(x + 2, y + MAP_TILE - 10, MAP_TILE - 4, 8).fill({ color: 0x090b11, alpha: 0.8 })
+    g.rect(x + 4, y + 2, MAP_TILE - 8, MAP_TILE - 10).fill({ color: WARDROBE_FILL })
+    // Two door panels with a centre seam.
+    g.rect(x + 8, y + 8, MAP_TILE / 2 - 10, MAP_TILE - 22).fill({ color: WARDROBE_PANEL })
+    g.rect(x + MAP_TILE / 2 + 2, y + 8, MAP_TILE / 2 - 10, MAP_TILE - 22).fill({ color: WARDROBE_PANEL })
+    g.rect(x + MAP_TILE / 2 - 1, y + 6, 2, MAP_TILE - 16).fill({ color: 0x090b11, alpha: 0.6 })
+    // Handles.
+    g.rect(x + MAP_TILE / 2 - 8, y + MAP_TILE / 2 - 6, 4, 10).fill({ color: WARDROBE_HANDLE })
+    g.rect(x + MAP_TILE / 2 + 4, y + MAP_TILE / 2 - 6, 4, 10).fill({ color: WARDROBE_HANDLE })
+  }
+
+  // Windows: lit panes set into wall tiles. Pure architecture — walls become a house, and
+  // a warm rectangle in the dark reads from far outside vision range.
+  for (let i = 0; i < decor.length; i += 3) {
+    if (decor[i] !== Decor.Window) continue
+    const x = decor[i + 1]! * MAP_TILE
+    const y = decor[i + 2]! * MAP_TILE
+    g.rect(x + 16, y + 20, MAP_TILE - 32, MAP_TILE - 40).fill({ color: WINDOW_FRAME })
+    g.rect(x + 20, y + 24, MAP_TILE - 40, MAP_TILE - 48).fill({ color: WINDOW_GLOW, alpha: 0.6 })
+    // Cross mullions.
+    g.rect(x + MAP_TILE / 2 - 2, y + 22, 4, MAP_TILE - 44).fill({ color: WINDOW_FRAME })
+    g.rect(x + 18, y + MAP_TILE / 2 - 2, MAP_TILE - 36, 4).fill({ color: WINDOW_FRAME })
   }
 
   // Standing props: plants and lamp bases. (Lamp light pools are additive sprites in the

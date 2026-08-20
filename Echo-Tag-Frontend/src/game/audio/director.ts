@@ -1,5 +1,14 @@
-import { MAX_DOORS, MAX_PLAYERS, NO_SLOT, doorCenterX, doorCenterY, type World } from '@echo-tag/shared'
-import { createAudioEngine, distanceGain, panFor, setMuted, type AudioEngine } from './engine.ts'
+import {
+  MAX_DOORS,
+  MAX_PLAYERS,
+  NO_SLOT,
+  doorCenterX,
+  doorCenterY,
+  wardrobeCenterX,
+  wardrobeCenterY,
+  type World,
+} from '@echo-tag/shared'
+import { createAudioEngine, distanceGain, panFor, setMuffled, setMuted, type AudioEngine } from './engine.ts'
 import { doorCreak, doorThud, footstep, heartThump, startAmbientBed, tagSting } from './voices.ts'
 
 /**
@@ -32,9 +41,11 @@ export const createAudioDirector = (): AudioDirector => {
   startAmbientBed(engine)
 
   const prevDoorOpen = new Float32Array(MAX_DOORS)
+  const prevHiddenIn = new Int8Array(MAX_PLAYERS).fill(NO_SLOT)
   const strideAcc = new Float32Array(MAX_PLAYERS)
   let heartCooldownMs = 0
   let heartAlternate = false
+  let muffled = false
 
   const onVisibility = (): void => setMuted(engine, document.hidden)
   document.addEventListener('visibilitychange', onVisibility)
@@ -65,6 +76,30 @@ export const createAudioDirector = (): AudioDirector => {
         prevDoorOpen[d] = open
       }
 
+      // ── Wardrobes ──
+      // Enter/exit transitions creak like doors, audible at the same range: the chaser
+      // hearing a wardrobe shut is half of what makes hiding a gamble.
+      const localHidden = world.hiddenIn[localSlot] !== NO_SLOT
+      if (localHidden !== muffled) {
+        muffled = localHidden
+        setMuffled(engine, muffled)
+      }
+      for (let s = 0; s < MAX_PLAYERS; s++) {
+        const now = world.hiddenIn[s]!
+        const before = prevHiddenIn[s]!
+        if (now !== before) {
+          const idx = now !== NO_SLOT ? now : before
+          const dx = wardrobeCenterX(world.map, idx) - lx
+          const dy = wardrobeCenterY(world.map, idx) - ly
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          const gain = s === localSlot ? 0.7 : distanceGain(dist, DOOR_EARSHOT)
+          const pan = s === localSlot ? 0 : panFor(dx)
+          if (now !== NO_SLOT) doorCreak(engine, { gain: gain * 0.7, pan })
+          else doorThud(engine, { gain: gain * 0.8, pan })
+          prevHiddenIn[s] = now
+        }
+      }
+
       // ── Footsteps ──
       for (let s = 0; s < MAX_PLAYERS; s++) {
         if (world.active[s] === 0) continue
@@ -89,8 +124,19 @@ export const createAudioDirector = (): AudioDirector => {
       }
 
       // ── Heartbeat ──
-      const it = world.itSlot
       heartCooldownMs -= dtMs
+      if (localHidden) {
+        // Inside a wardrobe your own pulse pounds at a constant panicked rate — loud, and
+        // deliberately information-free. You cannot tell whether they are still out there;
+        // that uncertainty is the mechanic.
+        if (heartCooldownMs <= 0) {
+          heartThump(engine, 0.4)
+          heartAlternate = !heartAlternate
+          heartCooldownMs = heartAlternate ? 170 : 460
+        }
+        return
+      }
+      const it = world.itSlot
       if (it !== NO_SLOT && it !== localSlot && world.active[it] === 1) {
         const dx = world.x[it]! - lx
         const dy = world.y[it]! - ly

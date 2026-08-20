@@ -11,3 +11,4 @@ export {
 } from './echo.ts'
 export { encodeInput, inputX, inputY, inputAngle, isIdle, IDLE_INPUT } from './input.ts'
 export { updateDoors } from './door.ts'
+export { updateWardrobes, dealKeys, isHidden } from './wardrobe.ts'

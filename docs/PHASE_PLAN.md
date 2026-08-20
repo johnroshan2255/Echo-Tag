@@ -12,6 +12,7 @@ opinions — if it isn't checkable, it isn't a gate.
 | 2.5 | World pivot: 4 maps + follow camera | 1 d | ✅ done |
 | 2.6 | Fog of war + cozy dusk retheme | 0.5 d | ✅ done |
 | 2.7 | Rooms, doors & the soundscape | 1 d | ✅ done |
+| 2.8 | Wardrobes (hide + keys) & windows | 1 d | ✅ done |
 | 3 | Input | 1 d | next |
 | 4 | Server authority | 2 d | |
 | 5 | Prediction & smoothing | 2 d | |
@@ -265,6 +266,19 @@ browser check green, furnished-room and door crops reviewed at 1:1. ✅
 
 The dead-end map test earned its keep again: the first furnishing pass put a bed in
 Warrens that sealed a one-exit pocket, caught before the first render.
+
+## Phase 2.8 — Wardrobes & windows ✅  (user direction)
+
+The hide mechanic, exactly as specified: keyed wardrobes (each player dealt ~half the map's
+keys), blind-and-muffled while inside with an information-free panic heartbeat, no exit
+immunity — stepping out beside a waiting It is a catch, asserted by test — and a 20s
+per-wardrobe personal cooldown with other wardrobes unaffected. One addition beyond spec,
+flagged: a 10s eviction timer, without which hiding out the clock would dominate a
+least-It-time scoreboard. Windows are lit panes in the walls — architecture, not gameplay.
+Details in [ADR 0008](adr/0008-wardrobes-windows.md).
+
+**Gate:** 67/67 tests, sim allocation-free, 7 of 8 draw calls, 114.3KB brotli, wardrobe +
+keyhole marker + window reviewed in 1:1 crops. ✅
 
 ## Phase 3 — Input `~1 day`  ← next
 

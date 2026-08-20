@@ -43,6 +43,8 @@ export const renderFog = (
   playerWorldY: number,
   viewW: number,
   viewH: number,
+  /** 1 in the open; ~0.22 inside a wardrobe — you see the door, no more. */
+  visionScale = 1,
 ): void => {
   const s = layer.sprite
 
@@ -52,7 +54,7 @@ export const renderFog = (
   const sy = viewH / 2 + (playerWorldY - cam.cy) * cam.scale
 
   // Scale so the texture's full-fog ring lands exactly VISION_MAX world units out…
-  const visionPx = VISION_MAX * cam.scale
+  const visionPx = VISION_MAX * visionScale * cam.scale
   const wanted = visionPx / (FOG_FULL_STOP * (FOG_TEX_SIZE / 2))
   // …but never so small that a screen corner escapes the solid region.
   const cornerX = Math.max(sx, viewW - sx)

@@ -50,6 +50,23 @@ export const DOOR_CLOSE_RATE = 0.055
 /** A door blocks movement while openness is below this. */
 export const DOOR_SOLID_BELOW = 0.5
 
+// ── Wardrobes ────────────────────────────────────────────────────────────────
+// Hiding spots. A runner holding the key to a wardrobe can slip inside to vanish —
+// untaggable, invisible, but blind and deaf: they cannot tell whether the chaser has left
+// the room, and stepping out next to a waiting "It" is exactly the catch it sounds like.
+// "It" never has keys: predators do not hide.
+export const MAX_WARDROBES = 8
+/** Each player is dealt keys to about half the map's wardrobes at round start. */
+export const WARDROBE_KEY_FRACTION = 0.5
+/** Contact range to slip inside (from the wardrobe centre, moving toward it). */
+export const WARDROBE_ENTER_R = 78
+/** The same wardrobe refuses the same player for this long after use. Others are fine. */
+export const WARDROBE_COOLDOWN_MS = 20_000
+/** You cannot bolt back out for a moment — the door has to shut first. */
+export const WARDROBE_MIN_HIDE_MS = 500
+/** And it will not shelter anyone forever: the door swings open on its own. */
+export const WARDROBE_MAX_HIDE_MS = 10_000
+
 /**
  * The most world a player is ever shown, per axis. The camera zooms so the view never
  * exceeds this window — roughly a 2.5x2.2 screens' walk to cross a map — which is what
