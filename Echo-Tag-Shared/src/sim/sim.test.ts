@@ -143,7 +143,10 @@ describe('echoes', () => {
     assert.ok(travelled > PLAYER_SPEED * 1.5, `only travelled ${travelled.toFixed(1)}`)
   })
 
-  it('is purely visual: doubling back through your own trail is unimpeded (ADR 0012)', () => {
+  it('never pushes or walls a player: a trail costs a faint, not passage (ADR 0012 + stuns)', () => {
+    // Trails have no collider — but crossing one faints you for 3s. So the contract is:
+    // driving through a trail region means at most one faint, then passage; never a wall,
+    // never the old bulldozer shove, never a chain-stun.
     const w = playing(MAX_PLAYERS)
     const inputs = new Uint8Array(MAX_PLAYERS)
 
@@ -159,19 +162,18 @@ describe('echoes', () => {
     const turnX = w.x[0]!
 
     inputs[0] = WEST
-    run(w, 60, inputs) // drive straight back through it
+    run(w, 200, inputs) // 10s: ample for one faint plus the walk back
 
     const backtracked = turnX - w.x[0]!
     const unobstructed = (PLAYER_SPEED * (60 * TICK_MS)) / 1000
+    assert.ok(backtracked > -10, `the trail shoved its owner backwards (bulldozer regression): ${backtracked.toFixed(1)}`)
     assert.ok(
-      backtracked > unobstructed * 0.9,
-      `a ghost image blocked movement: went back ${backtracked.toFixed(1)} of ${unobstructed.toFixed(1)}`,
+      backtracked > unobstructed * 0.7,
+      `still stuck after 10s — trail acting as a wall: went back ${backtracked.toFixed(1)} of ${unobstructed.toFixed(1)}`,
     )
   })
 
-  it('never makes a standing player solid via their own stacked echoes', () => {
-    // The old solid-trail rule had an emergent quirk: an idle player's echoes piled on top
-    // of them and made their position a de-facto wall. Visual-only trails must not.
+  it("a standing player's echo pile faints a walker once, never walls them", () => {
     const w = playing(2)
     const inputs = new Uint8Array(MAX_PLAYERS)
     w.x[0] = MAP_TILE * 4
@@ -181,16 +183,16 @@ describe('echoes', () => {
     run(w, 80, inputs) // slot 1 stands still long enough to stack a full echo pile
 
     inputs[0] = EAST
-    run(w, 60, inputs)
+    run(w, 200, inputs) // walking into the pile faints slot 0; then they pass through
     assert.ok(
       w.x[0]! > MAP_TILE * 8 + PLAYER_RADIUS * 2,
-      `walked into a standing player's echo pile and stuck: x=${w.x[0]!.toFixed(0)}`,
+      `still stuck behind a standing player's echo pile after 10s: x=${w.x[0]!.toFixed(0)}`,
     )
   })
 })
 
 describe('tagging', () => {
-  it('transfers It on contact and grants the new It immunity', () => {
+  it('contact begins the metamorphosis; the role transfers after the delay, with immunity', () => {
     const w = playing(2)
     setIt(w, 0)
     // Place them a hair outside tag range, facing each other.
@@ -206,8 +208,12 @@ describe('tagging', () => {
     for (let t = 0; t < 20 && !tagged; t++) tagged = stepWorld(w, inputs).tagCount > 0
 
     assert.ok(tagged, 'It should have caught a stationary neighbour')
-    assert.equal(w.itSlot, 1)
-    assert.ok(w.immuneUntilTick[1]! > w.tick, 'new It must be briefly untaggable')
+    assert.equal(w.turningSlot, 1, 'the caught player should be metamorphosing')
+    assert.equal(w.itSlot, -1, 'the old ghost is freed immediately; nobody hunts')
+    inputs[0] = 0
+    for (let t = 0; t < 110 && w.itSlot === -1; t++) stepWorld(w, inputs)
+    assert.equal(w.itSlot, 1, 'the turned player becomes the ghost after the delay')
+    assert.ok(w.immuneUntilTick[1]! > w.tick, 'new ghost must be briefly untaggable')
   })
 
   it('blocks an instant tag-back for the full immunity window', () => {

@@ -142,7 +142,7 @@ describe('wardrobes', () => {
     }
     assert.equal(w.hiddenIn[0], NO_SLOT, 'should have stepped out')
     assert.ok(tagged, 'stepping out beside a waiting It must be a catch — no exit immunity')
-    assert.equal(w.itSlot, 0)
+    assert.equal(w.turningSlot, 0, 'the caught hider begins metamorphosing')
   })
 
   it('evicts after the maximum hide time', () => {

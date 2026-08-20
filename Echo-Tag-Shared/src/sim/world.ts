@@ -85,6 +85,18 @@ export interface World {
    */
   tagBackSlot: Slot
   tagBackUntilTick: number
+
+  // ── Transformation ──
+  /** Player mid-metamorphosis into the ghost, or NO_SLOT. While set, nobody hunts. */
+  turningSlot: Slot
+  turningUntilTick: number
+
+  // ── Unconsciousness ──
+  /** Tick until which each player is out cold. 0 = awake. */
+  unconsciousUntilTick: Int32Array
+  /** Bitmask per player of trail owners they overlapped LAST tick — KO fires only on a
+   * fresh 0→1 transition while moving, which is what makes it "walking into" a trail. */
+  trailOverlap: Uint16Array
   /** Number of occupied slots. Derived, kept in sync by add/remove. */
   playerCount: number
 
@@ -162,6 +174,10 @@ export const createWorld = (seed: number, mapIndex = 0): World => {
     itSlot: NO_SLOT,
     tagBackSlot: NO_SLOT,
     tagBackUntilTick: 0,
+    turningSlot: NO_SLOT,
+    turningUntilTick: 0,
+    unconsciousUntilTick: new Int32Array(MAX_PLAYERS),
+    trailOverlap: new Uint16Array(MAX_PLAYERS),
     playerCount: 0,
 
     histX: new Float32Array(MAX_PLAYERS * ECHO_SAMPLES),
@@ -255,6 +271,12 @@ export const removePlayer = (w: World, slot: Slot): void => {
   // If "It" leaves, hand it to whoever has spent the least time as It — the fairest
   // choice available, and deterministic so client and server agree.
   if (w.itSlot === slot) w.itSlot = leastItTimeSlot(w, slot)
+  // If the metamorphosing player leaves, the transformation dies with them and the role
+  // passes directly — a 5s lull with no incoming ghost would otherwise strand the round.
+  if (w.turningSlot === slot) {
+    w.turningSlot = NO_SLOT
+    if (w.itSlot === NO_SLOT) w.itSlot = leastItTimeSlot(w, slot)
+  }
 }
 
 /** Lowest unused colour slot, falling back to the player slot itself. */

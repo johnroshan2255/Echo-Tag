@@ -86,6 +86,27 @@ export const IT_SPEED_MULT = 1.12 // "slightly faster" (GDD §3.2)
 export const ACCEL = 2200 // units/sec² — snappy but not instant
 export const FRICTION = 14 // per second, applied when input is idle
 
+// ── Transformation (tag → new ghost) ─────────────────────────────────────────
+// A tag no longer swaps the ghost instantly. The touched player spends TRANSFORM_DELAY_MS
+// "turning" — stumbling at TURNING_SPEED_MULT, wreathed in the bat animation — while the
+// old ghost is freed at once and NOBODY hunts: a mandatory pacing lull. The turning player
+// is telegraphed (bat + threat arrow), so the lull is a breath, not a safe zone.
+export const TRANSFORM_DELAY_MS = 5_000
+export const TURNING_SPEED_MULT = 0.1
+/** No It-time accrues while turning: charging a mandatory 5s would swamp the scoring. */
+
+// ── Unconsciousness (trail contact) ──────────────────────────────────────────
+// Ghost trails are not walls (ADR 0012) — they are hazards: WALK into any player's
+// breadcrumbs (your own included) and you faint for UNCONSCIOUS_MS, input dead, fully
+// vulnerable. "Walk into" is literal: it triggers on moving across a trail's edge, never
+// on standing still while a replay sweeps over you — otherwise idling would chain-stun.
+export const UNCONSCIOUS_MS = 3_000
+/** You must be moving at least this fast (world units/s) for trail contact to count. */
+export const KO_MIN_SPEED = 60
+/** Your own trail only counts once it is this many samples old (1s) — the freshest loop
+ * of your own past inherently hugs you at low speeds. Others' trails use ECHO_GRACE. */
+export const OWN_TRAIL_GRACE_SAMPLES = 20
+
 // ── Tagging ──────────────────────────────────────────────────────────────────
 export const TAG_RADIUS = PLAYER_RADIUS * 2 // touch = overlap
 export const TAG_IMMUNITY_MS = 1_000 // new It cannot be re-tagged (GDD §3.2)

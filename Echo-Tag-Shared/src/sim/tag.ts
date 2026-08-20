@@ -1,4 +1,4 @@
-import { MAX_PLAYERS, TAG_COOLDOWN_MS, TAG_IMMUNITY_MS, TAG_RADIUS, TICK_MS } from '../constants.ts'
+import { MAX_PLAYERS, TAG_COOLDOWN_MS, TAG_IMMUNITY_MS, TAG_RADIUS, TICK_MS, TRANSFORM_DELAY_MS } from '../constants.ts'
 import { NO_SLOT, type Slot } from '../types.ts'
 import type { World } from './world.ts'
 
@@ -19,6 +19,7 @@ import type { World } from './world.ts'
 const TAG_RADIUS_SQ = TAG_RADIUS * TAG_RADIUS
 const IMMUNITY_TICKS = Math.ceil(TAG_IMMUNITY_MS / TICK_MS)
 const COOLDOWN_TICKS = Math.ceil(TAG_COOLDOWN_MS / TICK_MS)
+const TRANSFORM_TICKS = Math.ceil(TRANSFORM_DELAY_MS / TICK_MS)
 
 export const isImmune = (w: World, slot: Slot): boolean => w.tick < w.immuneUntilTick[slot]!
 
@@ -37,13 +38,49 @@ export const setIt = (w: World, to: Slot): void => {
 }
 
 /**
+ * The transformation (owner spec, mechanic 1). A tag frees the old ghost IMMEDIATELY —
+ * normal speed, free to run and hide — and puts the touched player into a 5-second
+ * metamorphosis: stumbling at 10% speed, wreathed in the bat animation, untaggable,
+ * accruing no It-time. While anyone is turning, `itSlot` is NO_SLOT: nobody hunts, and the
+ * whole room gets the pacing lull. Activation grants the standard 1s immunity via setIt.
+ */
+export const enterTurning = (w: World, slot: Slot): void => {
+  const from = w.itSlot
+  w.itSlot = NO_SLOT // the old ghost is a person again, this very tick
+  w.turningSlot = slot
+  w.turningUntilTick = w.tick + TRANSFORM_TICKS
+  if (from !== NO_SLOT) {
+    w.tagCooldownUntilTick[from] = w.tick + COOLDOWN_TICKS
+    // No tag-backs, armed through the WHOLE metamorphosis plus the immunity window: the
+    // pair often stand overlapped at the moment of touch, and without this the freshly
+    // activated ghost converts its tagger straight back and the roles ping-pong forever.
+    w.tagBackSlot = from
+    w.tagBackUntilTick = w.tick + TRANSFORM_TICKS + IMMUNITY_TICKS
+  }
+}
+
+/** Completes a metamorphosis whose timer has run out: the turning player becomes the ghost. */
+export const updateTurning = (w: World): void => {
+  if (w.turningSlot === NO_SLOT) return
+  if (w.active[w.turningSlot] === 0) {
+    w.turningSlot = NO_SLOT
+    return
+  }
+  if (w.tick < w.turningUntilTick) return
+  const slot = w.turningSlot
+  w.turningSlot = NO_SLOT
+  setIt(w, slot) // immunity applies from the moment they are the ghost, per spec
+}
+
+/**
  * Finds and applies at most one tag. Records the result in `w.events`.
- * Returns true when "It" changed hands.
+ * Returns true when a metamorphosis began.
  */
 export const resolveTags = (w: World): boolean => {
   const it = w.itSlot
   if (it === NO_SLOT || w.active[it] === 0) return false
   if (w.tick < w.tagCooldownUntilTick[it]!) return false
+  if (w.tick < w.unconsciousUntilTick[it]!) return false // a fainted ghost tags nobody
 
   const ix = w.x[it]!
   const iy = w.y[it]!
@@ -68,7 +105,7 @@ export const resolveTags = (w: World): boolean => {
 
   if (best === NO_SLOT) return false
 
-  setIt(w, best)
+  enterTurning(w, best)
   w.events.tagCount++
   w.events.tagFrom = it
   w.events.tagTo = best

@@ -85,6 +85,8 @@ export const updateWardrobes = (w: World, inputs: Uint8Array): void => {
 
     // Entering: runners only, moving, and moving *toward* a keyed, ready wardrobe in reach.
     if (s === w.itSlot) continue
+    if (s === w.turningSlot) continue // mid-metamorphosis: locked out
+    if (w.tick < w.unconsciousUntilTick[s]!) continue // out cold on the floor
     const packed = inputs[s]!
     if (packed === 0) continue
 

@@ -7,6 +7,8 @@ import {
 } from '../constants.ts'
 import { NO_SLOT, RoundPhase, type Slot, type StepEvents } from '../types.ts'
 import { updateDoors } from './door.ts'
+import { updateTrailStuns } from './stun.ts'
+import { updateTurning } from './tag.ts'
 import { dealKeys, updateWardrobes } from './wardrobe.ts'
 import { rebuildEchoBodies, sampleHistory } from './echo.ts'
 import { IDLE_INPUT } from './input.ts'
@@ -75,11 +77,14 @@ export const stepWorld = (w: World, inputs: Uint8Array): StepEvents => {
   for (let s = 0; s < MAX_PLAYERS; s++) {
     if (w.active[s] === 0) continue
     if (w.hiddenIn[s] !== NO_SLOT) continue // inside a wardrobe: no movement, no collision
+    if (w.tick < w.unconsciousUntilTick[s]!) continue // out cold: input dead, body still
     integratePlayer(w, s, inputs[s] ?? IDLE_INPUT)
   }
 
   sampleHistory(w)
   rebuildEchoBodies(w)
+  updateTrailStuns(w) // trails are hazards, not walls: walking into one faints you
+  updateTurning(w) // a finished metamorphosis crowns the new ghost (with 1s immunity)
   resolveTags(w)
 
   // The score. Accrued after tag resolution so the tick a tag lands is charged to the
@@ -115,6 +120,9 @@ export const enterPhase = (w: World, phase: RoundPhase): void => {
     }
     w.hiddenIn.fill(-1)
     w.wardrobeCooldownUntil.fill(0)
+    w.turningSlot = -1
+    w.unconsciousUntilTick.fill(0)
+    w.trailOverlap.fill(0)
     spawnAll(w)
     dealKeys(w)
     setIt(w, pickStartingIt(w))

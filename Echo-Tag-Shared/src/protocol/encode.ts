@@ -16,16 +16,19 @@ import type { World } from '../sim/world.ts'
  *   u32 clockMs
  *   i8  itSlot
  *   u8  mapIndex
+ *   i8  turningSlot   (the metamorphosing player, or -1)
+ *   u8  turningTicksLeft (clamped to 255 — clients drive the animation from this)
  *   u8  doorCount     then per door: u8 openness (0..255)
  *   u8  playerCount   then per player:
  *     u8  slot
  *     i16 x, i16 y    (quantised world units — invisible at our zoom)
- *     u8  flags       bit0 immune · bit1 isBot · bit2 hidden · bits 3-5 wardrobe index
+ *     u8  flags       bit0 immune · bit1 isBot · bit2 hidden · bits 3-5 wardrobe index ·
+ *                     bit6 unconscious
  *
  * Both sides share this file, so the format cannot drift between them.
  */
 
-export const SNAPSHOT_MAX_BYTES = 12 + MAX_DOORS + 1 + MAX_PLAYERS * 6
+export const SNAPSHOT_MAX_BYTES = 14 + MAX_DOORS + 1 + MAX_PLAYERS * 6
 
 export const writeSnapshot = (w: World, mapIndex: number, out: DataView): number => {
   out.setUint32(0, w.tick, true)
@@ -33,10 +36,12 @@ export const writeSnapshot = (w: World, mapIndex: number, out: DataView): number
   out.setUint32(5, w.clockMs, true)
   out.setInt8(9, w.itSlot)
   out.setUint8(10, mapIndex)
+  out.setInt8(11, w.turningSlot)
+  out.setUint8(12, w.turningSlot >= 0 ? Math.min(255, Math.max(0, w.turningUntilTick - w.tick)) : 0)
 
   const doorCount = w.map.doors.length / 3
-  out.setUint8(11, doorCount)
-  let o = 12
+  out.setUint8(13, doorCount)
+  let o = 14
   for (let d = 0; d < doorCount; d++) {
     out.setUint8(o++, Math.round(w.doorOpen[d]! * 255))
   }
@@ -54,7 +59,8 @@ export const writeSnapshot = (w: World, mapIndex: number, out: DataView): number
       (w.tick < w.immuneUntilTick[s]! ? 1 : 0) |
         (w.isBot[s] === 1 ? 2 : 0) |
         (hidden ? 4 : 0) |
-        ((hidden ? w.hiddenIn[s]! & 0x07 : 0) << 3),
+        ((hidden ? w.hiddenIn[s]! & 0x07 : 0) << 3) |
+        (w.tick < w.unconsciousUntilTick[s]! ? 64 : 0),
     )
     o += 6
     n++
@@ -69,6 +75,8 @@ export interface Snapshot {
   clockMs: number
   itSlot: number
   mapIndex: number
+  turningSlot: number
+  turningTicksLeft: number
   doorOpen: Float32Array
   doorCount: number
   /** Dense per-slot arrays; inactive slots read active=0. */
@@ -78,6 +86,7 @@ export interface Snapshot {
   immune: Uint8Array
   isBot: Uint8Array
   hiddenIn: Int8Array
+  unconscious: Uint8Array
 }
 
 /** A reusable snapshot holder — decode into it, never allocate per packet. */
@@ -87,6 +96,8 @@ export const createSnapshot = (): Snapshot => ({
   clockMs: 0,
   itSlot: NO_SLOT,
   mapIndex: 0,
+  turningSlot: NO_SLOT,
+  turningTicksLeft: 0,
   doorOpen: new Float32Array(MAX_DOORS),
   doorCount: 0,
   active: new Uint8Array(MAX_PLAYERS),
@@ -95,6 +106,7 @@ export const createSnapshot = (): Snapshot => ({
   immune: new Uint8Array(MAX_PLAYERS),
   isBot: new Uint8Array(MAX_PLAYERS),
   hiddenIn: new Int8Array(MAX_PLAYERS),
+  unconscious: new Uint8Array(MAX_PLAYERS),
 })
 
 export const readSnapshot = (src: DataView, into: Snapshot): void => {
@@ -103,9 +115,11 @@ export const readSnapshot = (src: DataView, into: Snapshot): void => {
   into.clockMs = src.getUint32(5, true)
   into.itSlot = src.getInt8(9)
   into.mapIndex = src.getUint8(10)
+  into.turningSlot = src.getInt8(11)
+  into.turningTicksLeft = src.getUint8(12)
 
-  into.doorCount = src.getUint8(11)
-  let o = 12
+  into.doorCount = src.getUint8(13)
+  let o = 14
   for (let d = 0; d < into.doorCount; d++) {
     into.doorOpen[d] = src.getUint8(o++) / 255
   }
@@ -121,6 +135,7 @@ export const readSnapshot = (src: DataView, into: Snapshot): void => {
     into.immune[s] = flags & 1 ? 1 : 0
     into.isBot[s] = flags & 2 ? 1 : 0
     into.hiddenIn[s] = flags & 4 ? (flags >> 3) & 0x07 : NO_SLOT
+    into.unconscious[s] = flags & 64 ? 1 : 0
     o += 6
   }
 }
