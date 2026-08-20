@@ -32,15 +32,31 @@
         width: 100%; height: 100%; }
       #preview { z-index: 1; transition: opacity .28s ease-out; }
       #preview.gone { opacity: 0; pointer-events: none; }
-      #ui { position: fixed; inset: 0; z-index: 2; pointer-events: none;
-        display: grid; place-content: center; gap: 14px; justify-items: center; }
-      #play { pointer-events: auto; cursor: pointer; border: 0; border-radius: 999px;
-        padding: 18px 56px; font: 800 22px/1 system-ui, sans-serif; letter-spacing: .12em;
-        color: #241505; background: var(--accent);
-        box-shadow: 0 0 0 4px rgba(255,192,122,.16), 0 10px 44px rgba(255,178,100,.3); }
-      #play:disabled { cursor: default; filter: saturate(.4) brightness(.8); }
-      #status { font: 600 14px/1.4 system-ui, sans-serif; color: #b3a8c9; text-align: center;
-        max-width: 22ch; }
+      #ui { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+      /* The menu: the game's square language — hard corners, chunky drop-blocks, dusk +
+         apricot. The player is a square-person; the UI is built from the same bricks. */
+      #menu { position: absolute; inset: 0; display: grid; place-content: center;
+        gap: 14px; justify-items: center; }
+      #menu.busy { pointer-events: none; opacity: .7; }
+      #title { color: #f6f1ff; font: 900 30px/1 system-ui, sans-serif; letter-spacing: .3em;
+        margin: 0 0 4px; text-shadow: 4px 4px 0 rgba(0,0,0,.45); }
+      #menu button { pointer-events: auto; cursor: pointer; border: 0;
+        font: 800 15px/1 system-ui, sans-serif; letter-spacing: .12em; }
+      #play { padding: 18px 58px; font-size: 22px; color: #241505; background: var(--accent);
+        box-shadow: 6px 6px 0 rgba(0,0,0,.4), 0 10px 44px rgba(255,178,100,.25); }
+      #play:active { transform: translate(3px,3px); box-shadow: 3px 3px 0 rgba(0,0,0,.4); }
+      #status { font: 600 13px/1.4 system-ui, sans-serif; color: #b3a8c9; text-align: center;
+        max-width: 30ch; margin: 0; }
+      #mp { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;
+        margin-top: 10px; }
+      #mp button, #joinform input { background: #262048; color: #e9ddff; padding: 12px 16px;
+        border: 3px solid #3a3150; box-shadow: 4px 4px 0 rgba(0,0,0,.35); }
+      #mp button:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 rgba(0,0,0,.35); }
+      #joinform { display: flex; gap: 0; pointer-events: auto; }
+      #joinform input { width: 9ch; font: 800 15px/1 ui-monospace, monospace;
+        letter-spacing: .2em; text-transform: uppercase; outline: none; border-right: 0; }
+      #joinform input:focus { border-color: var(--accent); }
+      #joinform button { border-left: 0; }
     </style>
   </head>
   <body>

@@ -13,6 +13,7 @@ opinions — if it isn't checkable, it isn't a gate.
 | 2.6 | Fog of war + cozy dusk retheme | 0.5 d | ✅ done |
 | 2.7 | Rooms, doors & the soundscape | 1 d | ✅ done |
 | 2.8 | Wardrobes (hide + keys) & windows | 1 d | ✅ done |
+| 4 | Server authority & multiplayer menu | 2 d | ✅ done (pulled forward; prediction-lite) |
 | 3 | Input | 1 d | next |
 | 4 | Server authority | 2 d | |
 | 5 | Prediction & smoothing | 2 d | |
@@ -279,6 +280,18 @@ Details in [ADR 0008](adr/0008-wardrobes-windows.md).
 
 **Gate:** 67/67 tests, sim allocation-free, 7 of 8 draw calls, 114.3KB brotli, wardrobe +
 keyhole marker + window reviewed in 1:1 crops. ✅
+
+## Phase 4 — Multiplayer ✅  (pulled forward at user direction)
+
+Quick match (auto-pooled, 2s bot-filled auto-start), host-a-room with a shareable 5-letter
+code, join-by-code, and the local bots round untouched as the instant path — all from a
+menu in the game's square language. One authoritative ArenaRoom per room running the shared
+sim at 20Hz; ~90-byte snapshots; echoes reconstructed client-side from the position stream
+exactly as ADR 0004 planned; prediction-lite on the local avatar (full reconciliation stays
+Phase 5). Verified by `npm run check:mp`: a 14-assertion protocol probe plus a two-browser
+e2e where movement on one screen appears on the other and round clocks agree to the
+millisecond. Details and the two traps (schema v4 metadata, setPrivate vs join-by-code) in
+[ADR 0009](adr/0009-multiplayer.md).
 
 ## Phase 3 — Input `~1 day`  ← next
 

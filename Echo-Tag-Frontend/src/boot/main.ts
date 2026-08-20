@@ -59,38 +59,51 @@ addEventListener(
 // downloads while they are reading the button. Rejection is swallowed here and surfaced
 // when Play is actually pressed — a network failure should not blank the preview.
 type GameModule = typeof import('../game/index.ts')
+type GameMode = import('../game/index.ts').GameMode
 let gameModule: Promise<GameModule> | null = import('../game/index.ts')
 gameModule.catch(() => {})
 
-// ── Play button ──────────────────────────────────────────────────────────────
-const play = document.createElement('button')
-play.id = 'play'
-play.type = 'button'
-play.textContent = 'PLAY'
-play.setAttribute('aria-label', 'Play Echo Tag')
-ui.appendChild(play)
+// ── The menu ─────────────────────────────────────────────────────────────────
+// Four ways in, one design language: hard-cornered square buttons, the dusk palette, and
+// the apricot accent. #play (bots) is the primary — instant fun, no server needed.
+const menu = document.createElement('div')
+menu.id = 'menu'
+menu.innerHTML = `
+  <h1 id="title">ECHO TAG</h1>
+  <button id="play" type="button" aria-label="Play with bots">PLAY</button>
+  <p id="status">Don't be It when the clock runs out.</p>
+  <div id="mp">
+    <button id="quick" type="button">QUICK MATCH</button>
+    <button id="host" type="button">HOST ROOM</button>
+    <form id="joinform"><input id="codein" maxlength="5" placeholder="CODE"
+      autocomplete="off" spellcheck="false" /><button id="joinbtn" type="submit">JOIN</button></form>
+  </div>`
+ui.appendChild(menu)
 
-const status = document.createElement('p')
-status.id = 'status'
-status.textContent = "Don't be It when the clock runs out."
-ui.appendChild(status)
+const play = menu.querySelector('#play') as HTMLButtonElement
+const status = menu.querySelector('#status') as HTMLElement
+const quick = menu.querySelector('#quick') as HTMLButtonElement
+const host = menu.querySelector('#host') as HTMLButtonElement
+const joinForm = menu.querySelector('#joinform') as HTMLFormElement
+const codeIn = menu.querySelector('#codein') as HTMLInputElement
+codeIn.addEventListener('input', () => {
+  codeIn.value = codeIn.value.toUpperCase().replace(/[^A-Z]/g, '')
+})
 
 let starting = false
 
-const start = async (): Promise<void> => {
+const start = async (mode: GameMode): Promise<void> => {
   if (starting) return
   starting = true
-  play.disabled = true
   play.textContent = 'LOADING'
+  menu.classList.add('busy')
 
   try {
     const mod = await (gameModule ?? import('../game/index.ts'))
-    play.remove()
-    status.remove()
-
     fit(stage)
-    await mod.startGame(stage)
+    await mod.startGame(stage, mode)
 
+    menu.remove()
     // Only now is there something behind the preview worth showing.
     previewLive = false
     preview.classList.add('gone')
@@ -99,20 +112,32 @@ const start = async (): Promise<void> => {
     // Never leave the player staring at a dead button.
     starting = false
     gameModule = null
-    play.disabled = false
+    menu.classList.remove('busy')
     play.textContent = 'RETRY'
-    status.textContent = 'Could not load the game. Check your connection.'
+    status.textContent =
+      mode.kind === 'bots'
+        ? 'Could not load the game. Check your connection.'
+        : mode.kind === 'code'
+          ? 'No room with that code. Check it and try again.'
+          : 'Could not reach the game server — try PLAY for a bots round.'
     console.error('boot: game failed to start', err)
   }
 }
 
-play.addEventListener('click', start)
-// Enter/Space on a focused button already fire click; this catches a keyboard player who
-// never touches the button at all.
+play.addEventListener('click', () => void start({ kind: 'bots' }))
+quick.addEventListener('click', () => void start({ kind: 'quick' }))
+host.addEventListener('click', () => void start({ kind: 'host' }))
+joinForm.addEventListener('submit', (e) => {
+  e.preventDefault()
+  if (codeIn.value.length === 5) void start({ kind: 'code', code: codeIn.value })
+  else status.textContent = 'Room codes are five letters.'
+})
+// Enter/Space anywhere starts a bots round — the zero-friction path.
 addEventListener('keydown', (e) => {
-  if (!starting && (e.key === 'Enter' || e.key === ' ')) {
+  if (starting || document.activeElement === codeIn) return
+  if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
-    void start()
+    void start({ kind: 'bots' })
   }
 })
 

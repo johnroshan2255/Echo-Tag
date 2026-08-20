@@ -62,7 +62,13 @@ export interface GameHandle {
   destroy(): void
 }
 
-export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> => {
+export type GameMode =
+  | { kind: 'bots' }
+  | { kind: 'quick' }
+  | { kind: 'host' }
+  | { kind: 'code'; code: string }
+
+export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { kind: 'bots' }): Promise<GameHandle> => {
   const renderer = new WebGLRenderer()
   await renderer.init({
     canvas,
@@ -90,30 +96,60 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
   // Created here — inside the Play-click call stack — so the AudioContext starts unlocked.
   const audio = createAudioDirector()
 
-  // ── World ──
+  // ── World: local simulation, or a mirror of the server's ──
+  const net = mode.kind === 'bots' ? null : await (await import('./net/room.ts')).connect(
+    mode.kind === 'quick'
+      ? { kind: 'quick' }
+      : mode.kind === 'host'
+        ? { kind: 'host', code: (await import('./net/room.ts')).makeCode() }
+        : { kind: 'code', code: mode.code },
+  )
+
   let mapIndex = DEV_MAP >= 0 ? DEV_MAP : 0
-  const world: World = createWorld(0xec07a6, mapIndex)
-  for (let i = 0; i < MAX_PLAYERS; i++) addPlayer(world, i !== LOCAL_SLOT)
-  enterPhase(world, RoundPhase.Countdown)
-  if (DEV_AT && DEV_AT.length === 2) {
-    world.x[LOCAL_SLOT] = (DEV_AT[0]! + 0.5) * 80
-    world.y[LOCAL_SLOT] = (DEV_AT[1]! + 0.5) * 80
+  const world: World = net ? net.world : createWorld(0xec07a6, mapIndex)
+  let mySlot = net ? net.mySlot : LOCAL_SLOT
+
+  if (!net) {
+    for (let i = 0; i < MAX_PLAYERS; i++) addPlayer(world, i !== LOCAL_SLOT)
+    enterPhase(world, RoundPhase.Countdown)
+    if (DEV_AT && DEV_AT.length === 2) {
+      world.x[LOCAL_SLOT] = (DEV_AT[0]! + 0.5) * 80
+      world.y[LOCAL_SLOT] = (DEV_AT[1]! + 0.5) * 80
+    }
   }
   setLayersMap(layers, world.map)
-  snapCamera(cam, world.x[LOCAL_SLOT]!, world.y[LOCAL_SLOT]!)
+  snapCamera(cam, world.x[mySlot]!, world.y[mySlot]!)
 
   const inputs = new Uint8Array(MAX_PLAYERS)
 
-  // Previous-tick positions for render interpolation. Allocated once.
-  const prevX = new Float32Array(MAX_PLAYERS)
-  const prevY = new Float32Array(MAX_PLAYERS)
+  // Previous-tick positions for render interpolation. In net mode the driver owns them
+  // (they roll on snapshot arrival); locally they roll per fixed step.
   const bodyCount = MAX_PLAYERS * ECHO_BODIES_PER_PLAYER
-  const prevBodyX = new Float32Array(bodyCount)
-  const prevBodyY = new Float32Array(bodyCount)
+  const prevX = net ? net.prevX : new Float32Array(MAX_PLAYERS)
+  const prevY = net ? net.prevY : new Float32Array(MAX_PLAYERS)
+  const prevBodyX = net ? net.prevBodyX : new Float32Array(bodyCount)
+  const prevBodyY = net ? net.prevBodyY : new Float32Array(bodyCount)
   prevX.set(world.x)
   prevY.set(world.y)
   prevBodyX.set(world.bodyX)
   prevBodyY.set(world.bodyY)
+
+  // Net wiring: lobby overlay, tag stings, per-round camera snaps.
+  let lobbyUi: import('./net/lobbyUi.ts').LobbyUi | null = null
+  if (net) {
+    const { createLobbyUi } = await import('./net/lobbyUi.ts')
+    lobbyUi = createLobbyUi(() => net.start())
+    net.onLobby((view) => lobbyUi!.update(view))
+    net.onTag((from, to) => {
+      onTagged(anim, to, performance.now())
+      audio.onTag(world, (mySlot = net.mySlot), from, to)
+    })
+    net.onRoundSetup(() => {
+      mySlot = net.mySlot
+      setLayersMap(layers, world.map)
+      snapCamera(cam, world.x[mySlot]!, world.y[mySlot]!)
+    })
+  }
 
   // ── Viewport ──
   let viewW = canvas.width
@@ -135,6 +171,10 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
 
   // ── Simulation step ──
   let simTick = 0
+  const stepNet = (): void => {
+    // Net mode: the fixed tick only sends input (with prediction inside the driver).
+    net!.sendInput(keyboard.packed)
+  }
   const step = (): void => {
     prevX.set(world.x)
     prevY.set(world.y)
@@ -183,16 +223,16 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
     last = now
     frames++
 
-    advance(ticker, dt, step)
-    const a = ticker.alpha
+    advance(ticker, dt, net ? stepNet : step)
+    const a = net ? net.alpha() : ticker.alpha
 
     // Camera follows the interpolated local player, so it is as smooth as the avatar.
-    const lx = prevX[LOCAL_SLOT]! + (world.x[LOCAL_SLOT]! - prevX[LOCAL_SLOT]!) * a
-    const ly = prevY[LOCAL_SLOT]! + (world.y[LOCAL_SLOT]! - prevY[LOCAL_SLOT]!) * a
-    followCamera(cam, lx, ly, world.vx[LOCAL_SLOT]!, world.vy[LOCAL_SLOT]!, dt)
+    const lx = prevX[mySlot]! + (world.x[mySlot]! - prevX[mySlot]!) * a
+    const ly = prevY[mySlot]! + (world.y[mySlot]! - prevY[mySlot]!) * a
+    followCamera(cam, lx, ly, world.vx[mySlot]!, world.vy[mySlot]!, dt)
     applyCamera(cam, layers.worldRoot, viewW, viewH)
 
-    audio.update(world, LOCAL_SLOT, dt)
+    audio.update(world, mySlot, dt)
 
     renderAmbience(layers.ambience, now)
     renderDoors(layers.doors, world)
@@ -200,11 +240,11 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
     renderFx(layers.fx, world, prevX, prevY, a, now)
     renderLantern(layers.fx, lx, ly, now)
     renderPlayers(layers.bodies, world, prevX, prevY, a, anim, now)
-    renderMarkers(layers.markers, world, LOCAL_SLOT, now)
-    const hidden = world.hiddenIn[LOCAL_SLOT] !== NO_SLOT
+    renderMarkers(layers.markers, world, mySlot, now)
+    const hidden = world.hiddenIn[mySlot] !== NO_SLOT
     if (!DEV_NOFOG) renderFog(layers.fog, cam, lx, ly, viewW, viewH, hidden ? HIDDEN_VISION_SCALE : 1)
     else layers.fog.sprite.visible = false
-    renderIndicator(layers.indicator, world, LOCAL_SLOT, cam, viewW, viewH, now)
+    renderIndicator(layers.indicator, world, mySlot, cam, viewW, viewH, now)
 
     renderer.render(layers.stage)
     raf = requestAnimationFrame(frame)
@@ -238,6 +278,8 @@ export const startGame = async (canvas: HTMLCanvasElement): Promise<GameHandle> 
       removeEventListener('resize', relayout)
       keyboard.destroy()
       audio.destroy()
+      lobbyUi?.destroy()
+      net?.destroy()
       renderer.destroy()
       delete root.dataset.game
     },

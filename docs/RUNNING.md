@@ -17,13 +17,16 @@ on this machine** — no 150MB Chromium download.
 npm run dev        # Vite dev server → http://localhost:5173
 ```
 
-That is all you need today. The Colyseus server is not on the critical path until Phase 4;
-when it is:
+For multiplayer, run the room server too (separate terminal):
 
 ```bash
-npm run dev:server # Colyseus → :2567   (separate terminal)
-npm run dev:web    # same as `npm run dev`
+npm run dev:server # authoritative rooms → :2567
 ```
+
+Then in the game: **PLAY** is an instant local round against bots (no server needed);
+**QUICK MATCH** auto-joins a public room that starts within ~2s, bots filling empty seats;
+**HOST ROOM** shows a 5-letter code to share; **JOIN** takes a friend's code. Two browser
+tabs + quick match is the fastest way to see yourself from the outside.
 
 To look at the *built* artifact rather than the dev server — which is what the checks and
 Poki actually see:
@@ -44,6 +47,7 @@ space of the one before.
 | `npm run check` | ~15 s | Everything above, plus: the production bundle is inside its size budget, and the real artifact boots in headless Chrome on three viewports with zero console errors. |
 | `npm run check:browser -- --headed` | ~15 s | Same as the browser half of `check`, with a visible window. Use when a screenshot is not enough. |
 | `npm run crop [x y w h]` | ~10 s | A 1:1 device-pixel crop of the running arena. **The only way to judge anything visual.** |
+| `npm run check:mp` | ~40 s | Multiplayer: a 14-assertion protocol probe against the real server, then a two-browser e2e (quick match pairing, cross-client movement, private-room codes). |
 
 ### Judging visuals: use `npm run crop`
 

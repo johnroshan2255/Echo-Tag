@@ -15,7 +15,7 @@
   "scripts": {
     "dev": "npm run dev -w @echo-tag/frontend",
     "dev:web": "npm run dev -w @echo-tag/frontend",
-    "dev:server": "npm run dev -w @echo-tag/server",
+    "dev:server": "node Echo-Tag-Server/src/index.ts",
     "build": "npm run build -w @echo-tag/shared && npm run build -w @echo-tag/server && npm run build -w @echo-tag/frontend",
     "typecheck": "tsc --build --verbose",
     "size": "node tools/ci/size-check.mjs",
@@ -26,7 +26,8 @@
     "verify": "npm run typecheck && npm run test && npm run bench:sim",
     "check:browser": "node tools/check/browser-check.ts",
     "check": "npm run build && npm run size && npm run check:browser",
-    "crop": "node tools/check/crop.ts"
+    "crop": "node tools/check/crop.ts",
+    "check:mp": "node tools/check/mp-probe.ts && node tools/check/mp-check.ts"
   },
   "devDependencies": {
     "playwright": "^1.62.1",

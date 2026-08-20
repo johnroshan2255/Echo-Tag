@@ -1,3 +1,9 @@
-// Echo-Tag-Shared/src/protocol/index.ts
-// TODO: barrel for message types + codecs
-export {}
+export { MSG } from './messages.ts'
+export {
+  writeSnapshot,
+  readSnapshot,
+  createSnapshot,
+  packKeys,
+  SNAPSHOT_MAX_BYTES,
+  type Snapshot,
+} from './encode.ts'
