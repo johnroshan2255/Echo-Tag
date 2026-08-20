@@ -1,7 +1,7 @@
 # Echo Tag — Implementation Plan
 
-**Status:** skeleton scaffolded, ready to build.
-**Companion docs:** [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`PERFORMANCE_BUDGET.md`](PERFORMANCE_BUDGET.md) · [`COMPETITIVE_ANALYSIS.md`](COMPETITIVE_ANALYSIS.md) · [`adr/`](adr/)
+**Status:** Phase 0 and Phase 1 complete — the simulation runs, is tested, and is within budget. Phase 2 (renderer) is next.
+**Companion docs:** [`PHASE_PLAN.md`](PHASE_PLAN.md) (per-phase detail and gates) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`PERFORMANCE_BUDGET.md`](PERFORMANCE_BUDGET.md) · [`COMPETITIVE_ANALYSIS.md`](COMPETITIVE_ANALYSIS.md) · [`adr/`](adr/)
 
 ---
 
@@ -11,8 +11,10 @@
 |---|---|---|---|
 | Renderer | `pixi.js` | **8.19.0** | WebGL2 path only; v8 `ParticleContainer` + `Particle` API |
 | Build | `vite` | **8.2.2** | Rolldown bundler + LightningCSS. Needs Node `^20.19` \|\| `>=22.12` |
-| Language | `typescript` | **7.0.2** | the native compiler; `tsgo` for typecheck. Vite transpiles, TS only types |
-| UI | `preact` 10.28 via `preact/compat` | | React 19.2.8 API, ~40KB brotli cheaper — [ADR 0002](adr/0002-preact-alias.md) |
+| Runtime | Node | **24.18.1** | `.nvmrc`. Runs `.ts` natively — no dev build step |
+| Language | `typescript` | **7.0.2** | the native compiler, shipped as the **`tsc`** binary (not `tsgo`) |
+| UI | `preact` via `preact/compat` | **10.29.8** | React 19 API, ~40KB brotli cheaper — [ADR 0002](adr/0002-preact-alias.md) |
+| UI build | `@preact/preset-vite` | **2.10.6** | installs the `react`→`preact/compat` alias |
 | UI state | `zustand` | **5.0.15** | menus/leaderboard only, never per-frame |
 | Server | `colyseus` / `@colyseus/core` | **0.17.10 / 0.17.50** | `defineServer`/`defineRoom` API |
 | Schema | `@colyseus/schema` | **4.0.31** | cold state only |
@@ -23,6 +25,10 @@
 | Package manager | npm workspaces | npm 10.8 | no extra tooling to install |
 
 **Dropped from the original tech doc, deliberately:** `pixi-filters`, `gsap`, `nipplejs`, Aseprite sprite sheets, `react-dom`. Each is replaced by a few KB of our own code. Reasons in [ADR 0003](adr/0003-drop-gsap-and-nipplejs.md) and `PERFORMANCE_BUDGET.md`.
+
+**Also dropped:** `@types/react` and `@types/react-dom` — `preact/compat` ships its own React type definitions, so they were redundant (and `@types/react-dom@19.2.7` does not exist; the real latest is 19.2.4).
+
+**Node 24 specifics we rely on:** native `.ts` execution means the server starts with plain `node src/index.ts`, tests run via `node --test`, and the benchmark needs no loader. Relative imports must carry the `.ts` extension, which is why `tsconfig.base.json` sets `allowImportingTsExtensions` and `rewriteRelativeImportExtensions`.
 
 **Colyseus 0.17 API notes** (it changed a lot; these will bite otherwise):
 - `Room<{ state: MyState }>` — one generic object, not `Room<State, Metadata>`.
@@ -91,7 +97,7 @@ Why the shared package earns its keep: it is the reason prediction, bots, and lo
 ## 3. Build order
 
 ### Phase 0 — Foundation `~0.5 day`
-Install, wire project references, confirm `tsgo` typecheck + `vite build` + `npm run size` all run green on the empty skeleton. Get the CI gate passing *before* there's code to regress.
+Install, wire project references, confirm `tsc` typecheck + `vite build` + `npm run size` all run green on the empty skeleton. Get the CI gate passing *before* there's code to regress.
 
 ### Phase 1 — The sim, headless `~2 days`  ← highest risk, do it first
 `Echo-Tag-Shared` only. No renderer, no server, no network.
@@ -104,7 +110,7 @@ Install, wire project references, confirm `tsgo` typecheck + `vite build` + `npm
 
 *Why first:* if 3-second rolling echoes at 12 players produce an unplayable arena, that's a design problem, and it is far cheaper to discover it in a benchmark than after building a renderer for it.
 
-### Phase 2 — Renderer & feel `~3 days`
+### Phase 2 — Renderer & feel `~3 days`  ← next
 - Runtime textures (8×8 white square, radial gradient) into `OffscreenCanvas`. No files.
 - `templates.ts`: humanoid masks as flat `Uint8Array` (~180 filled cells) for idle / walk-a / walk-b / tagged.
 - Two `ParticleContainer`s, per-player contiguous slices, allocated once. Animation writes `x/y/scale/tint` only — **never** re-walk the template or create a `Particle` mid-round.
@@ -135,13 +141,13 @@ Bot brains emitting the same input frames as humans: seek when It, flee when not
 ### Phase 8 — Ship gate `~1.5 days`
 Real mid-range Android + iOS Safari pass, portrait and landscape. Strip all dev code (`/playground`, `/monitor`, logs). Poki Inspector run. Walk `docs/Echo_Tag_Tech_Theme_Poki_Requirements.md` §8 line by line.
 
-**Total: ~15–16 working days** to a submittable MVP.
+**Total: ~15.5 working days** to a submittable MVP; ~2.5 spent, ~13 remaining.
 
 ---
 
 ## 4. Open questions worth deciding early
 
-1. **Echo density at 2:30.** Playtest gate at the end of Phase 2. `ECHO_STRIDE`/`ECHO_ALPHA` exist to be tuned; if 180 echo bodies is unreadable, cap bodies-per-player rather than shortening the 3s window — the 3 seconds is the identity of the game.
+1. **Echo density at 2:30.** Now the single biggest open risk, and Phase 2's real subject. The sim confirms 180 solid echo bodies is cheap to *compute*; whether it is *readable* is untested. `ECHO_STRIDE`/`ECHO_ALPHA` exist to be tuned; if it is soup, cap bodies-per-player rather than shortening the 3s window — the 3 seconds is the identity of the game.
 2. **Hosting cost.** Colyseus needs a real server (a small VPS handles many 12-player rooms; positions are only ~1.4KB/s per client). Poki Netlib P2P is the zero-cost path but hands the level geometry to a host client. Launch authoritative; keep `net/room.ts` as the swap seam.
 3. **Do we need the 8-player minimum?** `MIN_PLAYERS = 8` bot-fills to a busy arena, which is good for feel and bad for how obviously bot-y an off-peak round looks. Revisit after Phase 6.
 4. **Round-end ad cadence.** `commercialBreak()` between every round is the revenue-maximal read of the SDK docs, but Poki decides actual fill; verify pacing doesn't fight the "instant requeue" loop.

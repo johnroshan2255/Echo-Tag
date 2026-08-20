@@ -15,8 +15,6 @@ export default defineConfig(({ mode }) => ({
     mode === 'analyze' && visualizer({ filename: 'stats.html', gzipSize: true, brotliSize: true }),
   ].filter(Boolean),
 
-  esbuild: { legalComments: 'none' },
-
   build: {
     target: 'es2022',
     cssTarget: 'chrome111',

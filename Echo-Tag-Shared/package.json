@@ -12,7 +12,11 @@
     "./constants": "./src/constants.ts"
   },
   "scripts": {
-    "build": "tsgo --build",
-    "typecheck": "tsgo --noEmit"
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0"
   }
 }

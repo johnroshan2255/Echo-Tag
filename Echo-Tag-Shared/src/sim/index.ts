@@ -1,3 +1,12 @@
-// Echo-Tag-Shared/src/sim/index.ts
-// TODO: barrel: createWorld, stepWorld, applyInput
-export {}
+export { createWorld, addPlayer, removePlayer, spawnAll, arenaScaleFor, setArenaSize, leastItTimeSlot, random, type World } from './world.ts'
+export { stepWorld, enterPhase } from './step.ts'
+export { integratePlayer } from './player.ts'
+export { resolveTags, setIt, isImmune } from './tag.ts'
+export {
+  sampleHistory,
+  rebuildEchoBodies,
+  writeHistoryBlob,
+  readHistoryBlob,
+  HISTORY_BLOB_BYTES,
+} from './echo.ts'
+export { encodeInput, inputX, inputY, inputAngle, isIdle, IDLE_INPUT } from './input.ts'

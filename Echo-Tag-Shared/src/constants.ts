@@ -44,10 +44,18 @@ export const ECHO_SAMPLE_HZ = TICK_HZ // one sample per authoritative tick
 /** 3s @ 20Hz = 60 samples. Ring buffer length per player, fixed allocation. */
 export const ECHO_SAMPLES = (ECHO_DELAY_MS / 1000) * ECHO_SAMPLE_HZ
 /** How many of those samples are rendered/collidable as bodies (every Nth sample). */
-export const ECHO_STRIDE = 4 // 15 echo bodies per player -> 180 max on screen
+export const ECHO_STRIDE = 4 // every 4th sample becomes a solid body
+/** 60 / 4 = 15 solid echo bodies per player -> 180 max in the arena. */
+export const ECHO_BODIES_PER_PLAYER = ECHO_SAMPLES / ECHO_STRIDE
 export const ECHO_RADIUS = PLAYER_RADIUS * 0.9 // slightly forgiving vs live bodies
 export const ECHO_ALPHA = 0.35 // Tech doc §2: 30–40% opacity
 export const ECHO_GRACE_MS = 400 // your own freshest echoes don't collide with you
+/** Grace expressed in ring samples, so the sim never divides in a tick. */
+export const ECHO_GRACE_SAMPLES = Math.round((ECHO_GRACE_MS / 1000) * ECHO_SAMPLE_HZ)
+/** Collision passes per tick. 2 is enough to resolve a corner without jitter. */
+export const COLLISION_PASSES = 2
+/** Fraction of tangential velocity kept when sliding along an echo. */
+export const SLIDE_FRICTION = 0.92
 
 // ── Rendering budget (Tech doc §3.2) ─────────────────────────────────────────
 export const SQUARES_PER_PLAYER = 180 // within the 150–250 band

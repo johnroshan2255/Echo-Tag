@@ -12,5 +12,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run test        # simulation invariants
+      - run: npm run bench:sim   # step-cost + allocation gate
       - run: npm run build
-      - run: npm run size   # hard gate on load-time budget
+      - run: npm run size        # hard gate on load-time budget

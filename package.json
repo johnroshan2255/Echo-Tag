@@ -2,9 +2,11 @@
   "name": "echo-tag",
   "private": true,
   "version": "0.1.0",
-  "description": "Echo Tag — a 3-minute multiplayer browser tag game where your last 3 seconds of movement become a solid obstacle.",
+  "description": "Echo Tag \u2014 a 3-minute multiplayer browser tag game where your last 3 seconds of movement become a solid obstacle.",
   "type": "module",
-  "engines": { "node": ">=20.19.0" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "workspaces": [
     "Echo-Tag-Shared",
     "Echo-Tag-Server",
@@ -15,10 +17,13 @@
     "dev:web": "npm run dev -w @echo-tag/frontend",
     "dev:server": "npm run dev -w @echo-tag/server",
     "build": "npm run build -w @echo-tag/shared && npm run build -w @echo-tag/server && npm run build -w @echo-tag/frontend",
-    "typecheck": "tsgo --build --verbose",
+    "typecheck": "tsc --build --verbose",
     "size": "node tools/ci/size-check.mjs",
-    "bench:sim": "node --experimental-strip-types tools/bench/sim-bench.ts",
-    "clean": "rm -rf */dist */.vite **/*.tsbuildinfo"
+    "bench:sim": "node tools/bench/sim-bench.ts",
+    "clean": "rm -rf */dist */.vite **/*.tsbuildinfo",
+    "test": "node --test \"Echo-Tag-Shared/src/**/*.test.ts\"",
+    "test:watch": "node --test --watch \"Echo-Tag-Shared/src/**/*.test.ts\"",
+    "verify": "npm run typecheck && npm run test && npm run bench:sim"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

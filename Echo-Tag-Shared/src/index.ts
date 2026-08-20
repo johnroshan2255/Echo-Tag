@@ -1,3 +1,7 @@
-// Echo-Tag-Shared/src/index.ts
-// TODO: public entry: re-export constants, sim, protocol, types
-export {}
+export * from './constants.ts'
+export * from './types.ts'
+export * from './sim/index.ts'
+export { resolveEchoCollisions, clampToArena, TOTAL_BODY_IDS } from './math/collision.ts'
+export { CONTACT_RADIUS, CELL_SIZE, MAX_BODIES } from './math/spatial-hash.ts'
+export { clamp, lerp, dist, distSq, len, angleDelta, TAU } from './math/vec2.ts'
+export { leaderboard } from './sim/leaderboard.ts'

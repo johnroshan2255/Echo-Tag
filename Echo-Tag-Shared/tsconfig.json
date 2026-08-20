@@ -2,7 +2,10 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    // Node types are needed only by the *.test.ts files (node:test, node:assert).
+    // The simulation itself must never reference a Node or DOM API.
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"]
 }
