@@ -1,5 +1,4 @@
-import type { Renderer, Texture } from 'pixi.js'
-import { Texture as PixiTexture } from 'pixi.js'
+import { Texture as PixiTexture, type Texture } from 'pixi.js'
 
 /**
  * Every texture in Echo Tag is generated here, at runtime, into a canvas.
@@ -16,7 +15,7 @@ import { Texture as PixiTexture } from 'pixi.js'
 
 let cachedSquare: Texture | null = null
 
-export const squareTexture = (_renderer: Renderer): Texture => {
+export const squareTexture = (): Texture => {
   if (cachedSquare) return cachedSquare
 
   const size = 8

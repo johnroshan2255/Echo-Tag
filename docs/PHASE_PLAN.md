@@ -8,8 +8,8 @@ opinions — if it isn't checkable, it isn't a gate.
 |---|---|---|---|
 | 0 | Foundation & toolchain | 0.5 d | ✅ done |
 | 1 | Deterministic simulation, headless | 2 d | ✅ done |
-| 2 | Renderer & feel | 3 d | next — baseline green |
-| 3 | Input | 1 d | |
+| 2 | Renderer & feel | 3 d | ✅ done |
+| 3 | Input | 1 d | next |
 | 4 | Server authority | 2 d | |
 | 5 | Prediction & smoothing | 2 d | |
 | 6 | Bots & matchmaking | 1.5 d | |
@@ -128,40 +128,85 @@ self-test: the control mode must register, or the gate is not to be trusted.
 
 ---
 
-## Phase 2 — Renderer & feel `~3 days`  ← next
+## Phase 2 — Renderer & feel ✅  `3 days`
 
-**Scope:** the arena on screen at 60fps, and the avatars feeling good to move.
+**Built:**
 
-1. `engine/textures.ts` — generate an 8x8 white square and a soft radial gradient into an
-   `OffscreenCanvas`. These are the only "assets" the game has; nothing is fetched.
-2. `engine/app.ts` — construct a `WebGLRenderer` directly. Do **not** use `new Application()`
-   (drags in the WebGPU adapter) and never touch `Assets`.
-3. `render/templates.ts` — humanoid masks as flat `Uint8Array` grids, ~180 filled cells, for
-   idle / walk-a / walk-b / tagged.
-4. `render/squareBody.ts` + `engine/layers.ts` — two `ParticleContainer`s; each player owns a
-   contiguous 180-particle slice allocated once at round start.
-   **v8 constraint:** a `ParticleContainer` holds `Particle` objects, supports no children,
-   no filters, no interaction. Characters are *not* nested containers.
-5. `render/playerRenderer.ts` / `echoRenderer.ts` — per-frame writes to `x/y/scaleX/scaleY/tint`
-   only. Never re-walk a template, never construct a `Particle` mid-round.
-6. `anim/procedural.ts` — idle bob, walk cycle, squash-stretch on acceleration, eye-look on
-   heading, tagged scatter-and-snap.
-7. `render/fx.ts` — the "It" ring as an additive radial sprite, pulsed by scale and alpha.
-8. `engine/camera.ts` — fit 16:9; portrait scales the whole arena down rather than cropping,
-   HUD and banner live in the letterbox.
-9. `engine/ticker.ts` — fixed-step accumulator for the sim, variable-step render interpolation.
+| File | Role |
+|---|---|
+| `engine/textures.ts` | the only "assets" — an 8px white square and a radial gradient, drawn into a canvas at boot |
+| `engine/camera.ts` | 16:9 fit, letterbox, rotate hint |
+| `engine/layers.ts` | z-order: arena → echoes → It halo → players |
+| `engine/ticker.ts` | fixed-step accumulator with catch-up clamping and an interpolation alpha |
+| `render/templates.ts` | humanoid rasterised from shape predicates: **168 cells**, part-tagged |
+| `render/squareBody.ts` | one shared `ParticleContainer`, a contiguous 168-particle slice per player |
+| `render/playerRenderer.ts` | per-frame transform of ~2,000 particles; writes position/vertex/tint only |
+| `render/echoRenderer.ts` | 180 solid echo bodies x 16 squares, alpha ramped by age |
+| `render/arena.ts` | floor, grid and boundary in one `Graphics`, rebuilt only on resize |
+| `render/fx.ts` | the "It" halo — two additive sprites, no filters |
+| `anim/easing.ts` `anim/procedural.ts` | the six curves we use; idle bob, walk cycle, squash-stretch, eye-look, blink, tag scatter |
+| `input/keyboard.ts` | WASD + arrows, normalised diagonals (Phase 3 adds touch alongside) |
+| `game/index.ts` | local world, keyboard on slot 0, synthetic drivers on the rest |
 
-**Gate:** 60fps with 12 players at full echo density on a 4x-CPU-throttled profile, and
-≤8 draw calls in the Pixi devtool. Extend `tools/bench` with a draw-call assertion.
+**Gate:** `npm run check` — 60fps at full density, ≤8 draw calls. ✅
 
-**The real question this phase answers:** at 2:30 with 12 players there are 180 echo
-silhouettes on screen. Is that readable, or is it soup? `ECHO_STRIDE` and `ECHO_ALPHA` exist
-in `constants.ts` to be tuned here. If it is unreadable, cap bodies-per-player — do *not*
-shorten the 3-second window, which is the game's identity.
+```
+83.0 fps   4,896 particles   180 solid echo bodies   arena 1600x900
+4 draw calls per frame at peak (budget 8)
+no dropped simulation ticks in steady state
+boot 3.4KB / engine 98.2KB / total 107.6KB brotli
+```
 
----
+Four draw calls for the entire arena: floor, echoes, halo, players. The two particle
+containers each batch to one call, which was the whole bet of the rendering design.
 
-## Phase 3 — Input `~1 day`
+### The question this phase existed to answer
+
+**Is a dense arena readable, or is it soup?** Readable — but only after two rounds of
+tuning, and only judged from 1:1 crops. The answer was not visible in any metric.
+
+What made it work:
+- Echoes are **16 chunky cells** against the avatar's 168. An earlier 29-cell silhouette with
+  a notched neck did not read as a figure at echo size, it read as dithering — and a wall has
+  to look like a wall.
+- Echoes are drawn **1.15x their collision diameter**. At full speed consecutive bodies land
+  48 world units apart while each blocks only within 16.2 of its centre. The trail is solid
+  to walk into, but drawn at true size it *looks* like a dotted line with gaps that are not
+  there. Erring generous is the safe direction: a gap where you expected a wall reads as
+  luck, being stopped by empty space reads as a bug.
+- Alpha ramps hard with age (0.26 down to near nothing). That gradient is what tells a player
+  which way a trail is *moving* — the one thing separating this from a static maze.
+
+At 1.35x visual scale the arena **inverted its own hierarchy**: the obstacles out-weighed the
+avatars and the players became hard to find. That is the exact failure every past-self game
+warns about, it was introduced while fixing a different problem, and no assertion caught it.
+
+### Three things that cost real time
+
+1. **`dynamicProperties.scale` is not a PixiJS option.** `ParticleProperties` has only
+   `vertex`, `position`, `rotation`, `uvs` and `color` — scale and anchor live in the
+   **vertex** attribute. The option type is `ParticleProperties & Record<string, boolean>`, so
+   `scale: true` type-checks, runs without warning, and leaves every particle stuck at its
+   construction scale. Echoes rendered at the raw 8px texture size for an hour before a 1:1
+   crop made it undeniable.
+2. **A full-viewport screenshot cannot answer a readability question.** Downscaling a
+   2880x1800 canvas to a viewable width invents dither patterns that are not in the render and
+   hides ones that are. `npm run crop` grabs a region at true device-pixel scale; it is the
+   only reason the two points above were found.
+3. **`gl.readPixels` returns nothing on a presented framebuffer.** Measuring drawn pixel sizes
+   from inside the page does not work without `preserveDrawingBuffer`. Draw calls are
+   instrumented by wrapping the context instead, which is both cheaper and more useful.
+
+### Carried forward as an open design question
+
+Portrait works and shows the whole arena, but a 16:9 arena in a 390x844 viewport occupies
+about 21% of the screen height. The arena is server-authoritative and identical for every
+player in a room, so it cannot adapt per device without breaking fairness — letterboxing is
+the honest answer, and the dead space is where Phase 7's HUD and banner slot go. The camera
+sets `data-rotate-hint` when the arena drops below 45% of viewport height; Phase 7 decides
+what to do with it.
+
+## Phase 3 — Input `~1 day`  ← next
 
 - `input/detect.ts` — pointer-type + coarse-media detection. Keyboard and touch stay live
   simultaneously (iPad with a keyboard case must work without a mode switch).
@@ -266,8 +311,9 @@ bot-heavy. Revisit with real numbers here.
 1. **`Echo-Tag-Frontend/src/boot/` may not import PixiJS, Preact or Colyseus.** Enforced by
    `npm run size`.
 2. **No frame may allocate.** Typed arrays in the sim, pooled particles in the renderer. A
-   per-frame `new` is a bug. `npm run bench:sim` guards the sim; Phase 2 adds the renderer's
-   equivalent.
+   per-frame `new` is a bug. `npm run bench:sim` guards the sim; the renderer is guarded
+   indirectly by the draw-call and dropped-tick assertions in `npm run check`.
+5. **Judge anything visual from `npm run crop`, not from a full-viewport screenshot.**
 3. **Game rules live only in `@echo-tag/shared`.** If the server and client can disagree
    about a rule, prediction is broken by construction.
 4. **`npm run verify` before every commit** — typecheck, tests, bench.

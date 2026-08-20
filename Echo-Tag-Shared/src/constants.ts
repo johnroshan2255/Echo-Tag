@@ -48,7 +48,7 @@ export const ECHO_STRIDE = 4 // every 4th sample becomes a solid body
 /** 60 / 4 = 15 solid echo bodies per player -> 180 max in the arena. */
 export const ECHO_BODIES_PER_PLAYER = ECHO_SAMPLES / ECHO_STRIDE
 export const ECHO_RADIUS = PLAYER_RADIUS * 0.9 // slightly forgiving vs live bodies
-export const ECHO_ALPHA = 0.35 // Tech doc §2: 30–40% opacity
+export const ECHO_ALPHA = 0.26 // Tech doc §2 says 30-40%; measured lower, see below
 export const ECHO_GRACE_MS = 400 // your own freshest echoes don't collide with you
 /** Grace expressed in ring samples, so the sim never divides in a tick. */
 export const ECHO_GRACE_SAMPLES = Math.round((ECHO_GRACE_MS / 1000) * ECHO_SAMPLE_HZ)
@@ -60,7 +60,27 @@ export const SLIDE_FRICTION = 0.92
 // ── Rendering budget (Tech doc §3.2) ─────────────────────────────────────────
 export const SQUARES_PER_PLAYER = 180 // within the 150–250 band
 export const SQUARE_SIZE = 3 // simulation units per body square
-export const ECHO_SQUARES = 28 // simplified silhouette only
+export const ECHO_SQUARES = 16 // simplified silhouette only — coarse enough to read as a wall
+/**
+ * How wide an echo is *drawn*, relative to its collision diameter.
+ *
+ * Tuned by looking at 1:1 crops of a dense arena, not by arithmetic. At 1.35 the echo blocks
+ * out-weighed the avatars and the arena inverted its own visual hierarchy — the obstacles
+ * read as the subject and the players became hard to pick out, which is the exact failure
+ * every past-self game warns about. 1.15 is the smallest value that still closes the gaps
+ * between consecutive bodies at full speed.
+ *
+ * At full speed a player lays down echo bodies `PLAYER_SPEED * ECHO_STRIDE * TICK_MS` apart
+ * — 48 world units — while an echo only blocks within `ECHO_RADIUS` (16.2) of its centre.
+ * The trail is still solid to walk into (the midpoint between two bodies is inside both
+ * contact circles) but drawn at true collision size it *looks* like a dotted line of
+ * separate blobs, which tells the player they can slip through a gap that is not there.
+ *
+ * So echoes are drawn slightly larger than they collide. The direction matters: erring
+ * generous means a player occasionally finds a gap where they expected a wall, which reads
+ * as luck. Erring mean would mean being stopped by empty space, which reads as a bug.
+ */
+export const ECHO_VISUAL_SCALE = 1.15
 /** 12*180 + 180*28 ≈ 7.2k particles, two ParticleContainers, ~2 draw calls. */
 
 // ── Palette (Tech doc §2) ────────────────────────────────────────────────────

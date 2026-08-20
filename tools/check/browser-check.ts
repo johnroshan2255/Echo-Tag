@@ -97,6 +97,48 @@ try {
       isMobile: vp.mobile,
     })
     const page = await context.newPage()
+
+    // Count WebGL draw calls per frame, by wrapping the context the page is handed.
+    // Draw-call count is the number that actually predicts mobile performance for this
+    // renderer: the whole design rests on two ParticleContainers batching the entire arena,
+    // and a regression there (an accidental extra container, a filter, a Graphics rebuild
+    // per frame) would not show up in fps on a desktop GPU but would wreck a phone.
+    await page.addInitScript(() => {
+      const stats = { calls: 0, frames: 0, maxPerFrame: 0 }
+      ;(globalThis as { __gl?: typeof stats }).__gl = stats
+
+      const orig = HTMLCanvasElement.prototype.getContext as (
+        this: HTMLCanvasElement,
+        id: string,
+        opts?: unknown,
+      ) => RenderingContext | null
+      HTMLCanvasElement.prototype.getContext = function (id: string, opts?: unknown) {
+        const ctx = orig.call(this, id, opts)
+        if (ctx && (id === 'webgl2' || id === 'webgl')) {
+          const gl = ctx as WebGL2RenderingContext
+          for (const m of ['drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced'] as const) {
+            const fn = gl[m] as (...a: unknown[]) => unknown
+            if (typeof fn !== 'function') continue
+            ;(gl as unknown as Record<string, unknown>)[m] = function (...a: unknown[]) {
+              stats.calls++
+              return fn.apply(gl, a)
+            }
+          }
+        }
+        return ctx
+      } as typeof HTMLCanvasElement.prototype.getContext
+
+      // Sample per frame so we can report a per-frame maximum, not just an average.
+      let lastCalls = 0
+      const tick = () => {
+        const d = stats.calls - lastCalls
+        lastCalls = stats.calls
+        if (stats.frames > 0 && d > stats.maxPerFrame) stats.maxPerFrame = d
+        stats.frames++
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
     if (vp === VIEWPORTS[0]) {
       const gpu = await page.evaluate(() => {
         const gl = document.createElement('canvas').getContext('webgl2')
@@ -248,17 +290,57 @@ try {
       fail('game never reached the running state')
     }
 
-    // ── Frame loop is advancing ──
-    const f0 = await page.evaluate(() => (globalThis as { __echoTagFrames?: number }).__echoTagFrames ?? -1)
-    await page.waitForTimeout(1500)
-    const f1 = await page.evaluate(() => (globalThis as { __echoTagFrames?: number }).__echoTagFrames ?? -1)
-    const particles = await page.evaluate(() => Number(document.documentElement.dataset.particles ?? 0))
+    // ── Let the arena reach full echo density before measuring ──
+    // The trail takes ECHO_DELAY_MS to fill, so measuring immediately measures an empty
+    // arena. Phase 2's gate is about the *dense* arena, which is the hard case.
+    await page.waitForTimeout(3500)
 
-    if (f0 < 0 || f1 <= f0) {
-      fail(`render loop is not advancing (frames ${f0} → ${f1})`)
+    type Snap = {
+      frames: number
+      ticks: number
+      dropped: number
+      liveEchoBodies: number
+      arena: [number, number]
+      camScale: number
+    }
+    const read = () => page.evaluate(() => (globalThis as { __echoTag?: Snap }).__echoTag)
+    const s0 = (await read()) as Snap | undefined
+    await page.waitForTimeout(2000)
+    const s1 = (await read()) as Snap | undefined
+    const particles = await page.evaluate(() => Number(document.documentElement.dataset.particles ?? 0))
+    const gl = await page.evaluate(() => (globalThis as { __gl?: { calls: number; frames: number; maxPerFrame: number } }).__gl)
+
+    if (!s0 || !s1 || s1.frames <= s0.frames) {
+      fail(`render loop is not advancing (${s0?.frames ?? -1} → ${s1?.frames ?? -1})`)
     } else {
-      const fps = ((f1 - f0) / 1.5).toFixed(1)
-      pass(`${f1 - f0} frames in 1.5s = ${fps} fps with ${particles} particles (this GPU only — not a phone)`)
+      const fps = (s1.frames - s0.frames) / 2
+      pass(`${fps.toFixed(1)} fps, ${particles} particles, ${s1.liveEchoBodies} echo bodies, arena ${s1.arena.join('x')} @ ${s1.camScale.toFixed(3)}x (this GPU only — not a phone)`)
+      if (fps < 30) fail(`under 30 fps even on this GPU (${fps.toFixed(1)}) — a phone has no chance`)
+    }
+
+    // Full echo density: 12 players x 15 bodies. Anything less means the trail is not
+    // filling, which would make the whole readability question untestable.
+    if (s1 && s1.liveEchoBodies !== 180) {
+      fail(`expected 180 solid echo bodies at full density, saw ${s1.liveEchoBodies}`)
+    } else if (s1) {
+      pass('echo trail fully populated (180 solid bodies)')
+    }
+
+    // Compare across the window rather than against zero: a tab that was throttled during
+    // load can legitimately shed a tick or two before the loop settles. What must not happen
+    // is dropping ticks in *steady state*.
+    if (s0 && s1 && s1.dropped > s0.dropped) {
+      fail(`ticker dropped ${s1.dropped - s0.dropped} simulation ticks in steady state — the frame loop cannot keep up`)
+    } else if (s1) {
+      pass(`no dropped simulation ticks in steady state (${s1.ticks} ticks stepped)`)
+    }
+
+    if (!gl || gl.maxPerFrame === 0) {
+      fail('draw calls were not instrumented')
+    } else if (gl.maxPerFrame > 8) {
+      fail(`${gl.maxPerFrame} draw calls in a frame, budget is 8 — particle batching has broken`)
+    } else {
+      pass(`${gl.maxPerFrame} draw calls per frame at peak (budget 8)`)
     }
 
     await page.screenshot({ path: `${SHOTS}/${vp.name}-game.png` })

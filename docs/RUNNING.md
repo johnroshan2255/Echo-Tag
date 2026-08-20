@@ -43,6 +43,19 @@ space of the one before.
 | `npm run verify` | ~3 s | Types compile, 22 simulation invariants hold, the tick path is inside its step budget and allocates nothing. |
 | `npm run check` | ~15 s | Everything above, plus: the production bundle is inside its size budget, and the real artifact boots in headless Chrome on three viewports with zero console errors. |
 | `npm run check:browser -- --headed` | ~15 s | Same as the browser half of `check`, with a visible window. Use when a screenshot is not enough. |
+| `npm run crop [x y w h]` | ~10 s | A 1:1 device-pixel crop of the running arena. **The only way to judge anything visual.** |
+
+### Judging visuals: use `npm run crop`
+
+A full-viewport screenshot of a 2880x1800 canvas is downscaled so far to be viewable that it
+invents dither patterns that are not in the render, and hides ones that are. Every visual bug
+in Phase 2 — echoes rendering at the wrong size, obstacles out-weighing the players — was
+invisible in the viewport screenshots and obvious in a crop.
+
+```bash
+npm run crop              # a middling patch of arena
+npm run crop 100 80 300 200
+```
 
 `npm run verify` = `typecheck` + `test` + `bench:sim`. Run it before every commit.
 
@@ -92,19 +105,22 @@ dropped rather than retuned.
 
 ```
 npm run verify
-  22/22 tests
+  32/32 tests
   mean step 0.0052 ms of a 0.4 ms budget    tick path allocation-free
 
 npm run check
-  boot     3.3 KB of  16 KB      preview + Play button, interactive alone
-  engine  80.8 KB of 160 KB      PixiJS v8, WebGL path only
-  total   85.0 KB of 260 KB      vs Poki's 8 MB ceiling
+  boot      3.4 KB of  16 KB     preview + Play button, interactive alone
+  engine   98.2 KB of 160 KB     PixiJS v8, WebGL path only
+  total   107.6 KB of 260 KB     vs Poki's 8 MB ceiling
+  83 fps, 4,896 particles, 180 echo bodies, 4 draw calls per frame
   3/3 viewports green
 ```
 
-What is on screen today is the **boot chunk** (a Canvas2D arena preview and a working Play
-button, the real thing) plus a **Phase 2 renderer stub**: 12 mock players of 180 particles
-each in a letterboxed 16:9 arena, which is the real particle budget. The stub exists so
-Phase 2 starts against a green baseline and a comparable screenshot instead of a blank
-page. `Echo-Tag-Frontend/src/game/index.ts` says so at the top, and names the two decisions
-in it that are keepers.
+On screen today: the Canvas2D preview and Play button, then the real arena — 12 avatars of
+168 squares each, 180 solid echo bodies, procedural walk/idle/squash animation, the "It" halo,
+and a letterboxed 16:9 camera. Slot 0 is yours on WASD or the arrow keys; the other eleven run
+a deterministic synthetic input pattern (**not** AI — that is Phase 6) so the renderer can be
+judged at full density.
+
+There is no server yet. The world is local, the round loops, and nothing is networked; Phase 4
+swaps the local `World` for a server-authoritative one without touching the render path.
