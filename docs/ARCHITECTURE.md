@@ -33,7 +33,9 @@ Data layout in the sim is **structure-of-arrays over typed arrays**, not objects
 
 This is the highest-leverage networking decision in the project.
 
-An echo is *entirely* a function of a player's past position. Every client already receives every player's position stream at 20Hz. So the server sends **only current positions**, and each client keeps a 60-sample ring buffer per player and renders/collides against `buffer[(head - 60 + i) % 60]`.
+An echo is *entirely* a function of a player's past position. Every client already receives every player's position stream at 20Hz. So the server sends **only current positions**, and each client keeps a 60-sample ring buffer per player and derives the trail bodies from `buffer[(head - 60 + i) % 60]`.
+
+Only the ghost's bodies are ever *live*, and only from the crowning tick on (ADR 0013 — humans leave no trail, and a new ghost's trail starts empty and grows over 3s). The rings are still kept for **all** players; each snapshot carries `itSlot` plus a 2-byte `itAgeTicks`, so every client — late joiners included — gates the trail exactly as the server collides with it.
 
 | | Naive (echoes on the wire) | Derived (chosen) |
 |---|---|---|
@@ -71,10 +73,10 @@ What we do instead:
 1. One `ParticleContainer` for live bodies, created with `dynamicProperties: { position: true, color: true, rotation: false, scale: true, uvs: false, vertex: false }`.
 2. Each player owns a **contiguous slice** of that container's particle array (`SQUARES_PER_PLAYER = 180`, so player *n* owns `[n*180, (n+1)*180)`). Slices are allocated once at round start and never resized.
 3. Animation writes `particle.x/y/scaleX/scaleY/tint` for its own slice each frame. The grid template is never re-walked, and no object is ever created.
-4. A second `ParticleContainer` holds echo silhouettes (`ECHO_SQUARES = 28` each) at `ECHO_ALPHA`.
+4. A second `ParticleContainer` holds echo silhouettes (`ECHO_SQUARES = 16` each) at `ECHO_ALPHA`. Capacity covers all 180 body ids, but only the ghost's 15 bodies are ever live (ADR 0013) — the rest stay parked off-world.
 5. Every particle shares **one runtime-generated 8×8 white square texture**, so batching is perfect.
 
-Budget: `12 × 180 + 180 × 28 = 7,200` particles. That is well inside v8's ParticleContainer envelope on mid-range mobile.
+Budget: `12 × 168 body + 180 × 16 echo = 4,896` particles. That is well inside v8's ParticleContainer envelope on mid-range mobile.
 
 ### The "It" glow, without pixi-filters
 `GlowFilter` cannot be applied to a ParticleContainer, and filters mean an extra render target and a full-screen pass — expensive on low-end GPUs. Instead the "It" indicator is a single **additively-blended radial-gradient sprite** drawn under the player, pulsed by scaling and alpha. It reads better at small sizes, costs one quad, and lets us drop the `pixi-filters` dependency entirely.

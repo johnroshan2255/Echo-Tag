@@ -4,10 +4,17 @@ import {
   MAP_COUNT,
   MAX_PLAYERS,
   NO_SLOT,
+  PLAYER_COLORS,
   RoundPhase,
+  TICK_MS,
+  TOOL_SLOTS,
+  TRANSFORM_DELAY_MS,
+  WARDROBE_MAX_HIDE_MS,
   addPlayer,
   createWorld,
   enterPhase,
+  enterTurning,
+  queueToolUse,
   setMap,
   stepWorld,
   syntheticDriver,
@@ -22,12 +29,16 @@ import { advance, createTicker } from './engine/ticker.ts'
 import { fogTexture, glowTexture, squareTexture } from './engine/textures.ts'
 import { createJoystick } from './input/joystick.ts'
 import { createKeyboard } from './input/keyboard.ts'
-import { renderAmbience } from './render/ambience.ts'
+import { renderAmbience, renderWreath } from './render/ambience.ts'
 import { renderDoors } from './render/doors.ts'
 import { renderEchoes } from './render/echoRenderer.ts'
 import { renderFog } from './render/fog.ts'
 import { renderFx, renderLantern } from './render/fx.ts'
 import { renderIndicator } from './render/indicator.ts'
+import { renderInterior } from './render/interior.ts'
+import { renderTerror } from './render/terror.ts'
+import { renderTools } from './render/toolsRenderer.ts'
+import { JAR_ICON, TRAP_ICON, drawIconToCanvas } from './render/pixelIcons.ts'
 import { createAnimState, onTagged, renderPlayers } from './render/playerRenderer.ts'
 import { BODY, ECHO } from './render/templates.ts'
 import { renderMarkers } from './render/wardrobeMarkers.ts'
@@ -47,18 +58,23 @@ import { FOG_COLOR, FOG_MAX_ALPHA, HIDDEN_VISION_SCALE, VISION_CLEAR, VISION_MAX
  */
 
 const LOCAL_SLOT = 0
+const TRANSFORM_TICKS = Math.ceil(TRANSFORM_DELAY_MS / TICK_MS)
 
 /**
  * Dev review hooks, all URL-gated and inert in normal play:
  *   ?map=N     start on map N instead of 0
  *   ?nofog     skip the fog pass — for judging maps and furnishing in crops
  *   ?at=tx,ty  teleport the local player to a tile after spawn
+ *   ?turn      stage a metamorphosis next to the local player (review the effect in crops)
+ *   ?turn=me   stage the local player's OWN metamorphosis (review the terror overlay)
  * They exist because fog (correctly) hides everything worth reviewing from a screenshot.
  */
 const devParams = new URLSearchParams(globalThis.location?.search ?? '')
 const DEV_NOFOG = devParams.has('nofog')
 const DEV_MAP = Number(devParams.get('map') ?? -1)
 const DEV_AT = devParams.get('at')?.split(',').map(Number)
+const DEV_TURN = devParams.has('turn')
+const DEV_TURN_ME = devParams.get('turn') === 'me'
 
 export interface GameHandle {
   destroy(): void
@@ -106,6 +122,63 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   // Created here — inside the Play-click call stack — so the AudioContext starts unlocked.
   const audio = createAudioDirector()
 
+  // ── The tool belt: two slots, top-right, engine-owned DOM (never per-frame React) ──
+  // Tap an icon (or press 1 / 2) to use that tool at your feet. The server validates
+  // everything; locally the request is queued into the same deterministic sim path.
+  const useTool = (k: number): void => {
+    if (net) net.useTool(k)
+    else queueToolUse(world, LOCAL_SLOT, k)
+  }
+  // Pixel-art icons, never fonts or emoji: drawn onto small canvases at an integer scale
+  // so they stay crisp and identical on every platform (see render/pixelIcons.ts).
+  const TOOL_ICON = [null, JAR_ICON, TRAP_ICON] as const
+  const toolbar = document.createElement('div')
+  toolbar.id = 'toolbar'
+  toolbar.style.cssText =
+    'position:fixed;top:calc(14px + env(safe-area-inset-top));right:calc(14px + env(safe-area-inset-right));' +
+    'display:flex;gap:8px;z-index:30;user-select:none;-webkit-user-select:none;'
+  const slotCanvases: HTMLCanvasElement[] = []
+  const slotBtns = [0, 1].map((k) => {
+    const b = document.createElement('button')
+    b.style.cssText =
+      'width:52px;height:52px;padding:0;display:flex;align-items:center;' +
+      'justify-content:center;background:rgba(22,18,38,.72);border:1.5px solid rgba(255,243,220,.22);' +
+      'border-radius:10px;touch-action:none;cursor:pointer;'
+    const c = document.createElement('canvas')
+    c.width = 48
+    c.height = 48
+    c.style.cssText = 'width:48px;height:48px;image-rendering:pixelated;'
+    b.appendChild(c)
+    slotCanvases.push(c)
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      useTool(k)
+    })
+    toolbar.appendChild(b)
+    return b
+  })
+  document.body.appendChild(toolbar)
+  let shownHeld = -1
+  const refreshToolbar = (): void => {
+    const a = world.held[mySlot * TOOL_SLOTS]!
+    const b = world.held[mySlot * TOOL_SLOTS + 1]!
+    const packed = a | (b << 4)
+    if (packed === shownHeld) return
+    shownHeld = packed
+    drawIconToCanvas(slotCanvases[0]!, TOOL_ICON[a] ?? null, 4)
+    drawIconToCanvas(slotCanvases[1]!, TOOL_ICON[b] ?? null, 4)
+    slotBtns[0]!.style.opacity = a === 0 ? '0.28' : '1'
+    slotBtns[1]!.style.opacity = b === 0 ? '0.28' : '1'
+  }
+  const onToolKey = (e: KeyboardEvent): void => {
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return // typing in chat
+    if (e.code === 'Digit1') useTool(0)
+    else if (e.code === 'Digit2') useTool(1)
+  }
+  addEventListener('keydown', onToolKey)
+
   // ── World: local simulation, or a mirror of the server's ──
   const net = mode.kind === 'bots' ? null : await (await import('./net/room.ts')).connect(
     mode.kind === 'quick'
@@ -144,12 +217,25 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   prevBodyX.set(world.bodyX)
   prevBodyY.set(world.bodyY)
 
-  // Net wiring: lobby overlay, tag stings, per-round camera snaps.
+  // Net wiring: lobby overlay, tag stings, per-round camera snaps, and the room chat —
+  // chat is coop-only by construction: it exists only where there is a room to relay it.
   let lobbyUi: import('./net/lobbyUi.ts').LobbyUi | null = null
+  let chatUi: import('./chat.ts').ChatUi | null = null
   let cleanupNet: (() => void) | null = null
   if (net) {
     const { createLobbyUi } = await import('./net/lobbyUi.ts')
-    lobbyUi = createLobbyUi(() => net.start())
+    lobbyUi = createLobbyUi(
+      () => net.start(),
+      (n) => net.setBots(n),
+    )
+    const { createChatUi } = await import('./chat.ts')
+    chatUi = createChatUi({
+      send: (t) => net.sendChat(t),
+      colorSlotOf: (slot) => world.colorSlot[slot]!,
+      colorOf: (c) => PLAYER_COLORS[c % PLAYER_COLORS.length]!,
+      mySlot: () => mySlot,
+    })
+    net.onChat((slot, text) => chatUi!.push(slot, text))
     net.onLobby((view) => lobbyUi!.update(view))
     net.onTag((from, to) => {
       onTagged(anim, to, performance.now())
@@ -202,6 +288,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
 
   // ── Simulation step ──
   let simTick = 0
+  let devTurnArmed = DEV_TURN && !net
   const stepNet = (): void => {
     // Net mode: the fixed tick only sends input (with prediction inside the driver).
     net!.sendInput(localInput())
@@ -214,6 +301,19 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
 
     inputs[LOCAL_SLOT] = localInput()
     syntheticDriver(world, inputs, simTick, driver, LOCAL_SLOT)
+
+    if (devTurnArmed && world.phase === RoundPhase.Playing) {
+      // ?turn: park slot 1 beside the local player and start its metamorphosis.
+      // ?turn=me: the local player is the one turning (reviews the terror overlay).
+      devTurnArmed = false
+      if (DEV_TURN_ME) {
+        enterTurning(world, LOCAL_SLOT)
+      } else {
+        world.x[1] = world.x[LOCAL_SLOT]! + 130
+        world.y[1] = world.y[LOCAL_SLOT]!
+        enterTurning(world, 1)
+      }
+    }
 
     const ev = stepWorld(world, inputs)
     if (ev.tagCount > 0) {
@@ -244,6 +344,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   let raf = 0
   let last = 0
   let frames = 0
+  let hiddenAtMs = -1 // when the local player slipped into a wardrobe, for the door creak
 
   const frame = (now: number): void => {
     // The first frame's delta spans renderer init and shader compile; it only sets the clock.
@@ -267,10 +368,46 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     followCamera(cam, lx, ly, world.vx[mySlot]!, world.vy[mySlot]!, dt)
     applyCamera(cam, layers.worldRoot, viewW, viewH)
 
+    // ── The terror: BECOMING the ghost, first-person ──
+    // Ramps through your own metamorphosis and slams for a beat at the crowning. Strictly
+    // this client's screen: everyone else gets the arena telegraphs, only the victim's
+    // monitor shakes. Applied post-applyCamera, so it is a per-viewport pixel offset —
+    // the world, the camera and the other players never know it happened.
+    const turning = world.turningSlot
+    const turnProgress =
+      turning !== NO_SLOT
+        ? 1 - Math.min(1, Math.max(0, (world.turningUntilTick - world.tick) / TRANSFORM_TICKS))
+        : 0
+    let terror = 0
+    if (world.phase === RoundPhase.Playing) {
+      if (turning === mySlot && world.active[mySlot] === 1) {
+        terror = 0.35 + 0.65 * turnProgress
+      } else if (world.itSlot === mySlot) {
+        const sinceCrown = world.tick - world.itSinceTick
+        if (sinceCrown < 14) terror = 1 - sinceCrown / 14 // the crowning slam, decaying
+      }
+    }
+    if (terror > 0) {
+      const mag = cam.scale * (1.2 + 5 * terror)
+      layers.worldRoot.x += Math.sin(now * 0.091) * mag
+      layers.worldRoot.y += Math.cos(now * 0.077) * mag
+    }
+    renderTerror(layers.terror, terror, now, viewW, viewH)
+
     audio.update(world, mySlot, dt)
 
     renderAmbience(layers.ambience, now, cam.cx, cam.cy)
     if (layers.ambience.flockJustStarted) audio.flutter()
+    renderTools(layers.tools, world, now)
+    refreshToolbar()
+    // The metamorphosis wreath: bats whirl around whoever is turning into the ghost.
+    if (turning !== NO_SLOT && world.active[turning] === 1) {
+      const tx = prevX[turning]! + (world.x[turning]! - prevX[turning]!) * a
+      const ty = prevY[turning]! + (world.y[turning]! - prevY[turning]!) * a
+      renderWreath(layers.ambience, true, tx, ty, turnProgress, now)
+    } else {
+      renderWreath(layers.ambience, false, 0, 0, 0, now)
+    }
     renderDoors(layers.doors, world)
     renderEchoes(layers.echoes, world, prevBodyX, prevBodyY, a)
     renderFx(layers.fx, world, prevX, prevY, a, now)
@@ -280,6 +417,13 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     const hidden = world.hiddenIn[mySlot] !== NO_SLOT
     if (!DEV_NOFOG) renderFog(layers.fog, cam, lx, ly, viewW, viewH, hidden ? HIDDEN_VISION_SCALE : 1)
     else layers.fog.sprite.visible = false
+    // Inside the wardrobe you are blind: the interior overlay covers the whole view, so
+    // you genuinely cannot tell whether the ghost is still out there. Time from entry is
+    // tracked here (the mirror does not carry hiddenSinceTick) to creak the door open
+    // toward the eviction.
+    if (hidden && hiddenAtMs < 0) hiddenAtMs = now
+    if (!hidden) hiddenAtMs = -1
+    renderInterior(layers.interior, hidden, hidden ? (now - hiddenAtMs) / WARDROBE_MAX_HIDE_MS : 0, now, viewW, viewH)
     renderIndicator(layers.indicator, world, mySlot, cam, viewW, viewH, now)
 
     renderer.render(layers.stage)
@@ -300,6 +444,14 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       phase: world.phase,
       clockMs: world.clockMs,
       itSlot: world.itSlot,
+      turningSlot: world.turningSlot,
+      ticksAsIt: world.itSlot === NO_SLOT ? 0 : world.tick - world.itSinceTick,
+      // True while the local player cannot steer normally (metamorphosis stumble,
+      // unconscious, or inside a wardrobe) — the browser check's touch test waits this out.
+      meImpaired:
+        world.turningSlot === mySlot ||
+        world.tick < world.unconsciousUntilTick[mySlot]! ||
+        world.hiddenIn[mySlot] !== NO_SLOT,
       liveEchoBodies: world.bodyLive.reduce((s: number, v: number) => s + v, 0),
       arena: [world.arenaW, world.arenaH],
       map: world.map.name,
@@ -312,12 +464,15 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     destroy(): void {
       cancelAnimationFrame(raf)
       removeEventListener('resize', relayout)
+      removeEventListener('keydown', onToolKey)
+      toolbar.remove()
       document.removeEventListener('visibilitychange', onVis)
       keyboard.destroy()
       joystick.destroy()
       audio.destroy()
       cleanupNet?.()
       lobbyUi?.destroy()
+      chatUi?.destroy()
       net?.destroy()
       renderer.destroy()
       delete root.dataset.game

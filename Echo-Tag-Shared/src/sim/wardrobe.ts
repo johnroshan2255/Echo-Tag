@@ -1,14 +1,25 @@
 import {
+  KEY_GRAB_R,
+  KEY_SPAWN_CLEAR,
+  PICKUP_SPACING,
+  MAP_TILES_X,
   MAX_PLAYERS,
   MAX_WARDROBES,
+  SPAWNS_PER_MAP,
   TICK_MS,
   WARDROBE_COOLDOWN_MS,
   WARDROBE_ENTER_R,
-  WARDROBE_KEY_FRACTION,
   WARDROBE_MAX_HIDE_MS,
   WARDROBE_MIN_HIDE_MS,
 } from '../constants.ts'
-import { wardrobeCenterX, wardrobeCenterY, wardrobeExitX, wardrobeExitY } from '../maps/index.ts'
+import {
+  tileCenterX,
+  tileCenterY,
+  wardrobeCenterX,
+  wardrobeCenterY,
+  wardrobeExitX,
+  wardrobeExitY,
+} from '../maps/index.ts'
 import { NO_SLOT } from '../types.ts'
 import { INPUT_DIR_X, INPUT_DIR_Y } from './input.ts'
 import { random, type World } from './world.ts'
@@ -18,12 +29,15 @@ import { random, type World } from './world.ts'
  *
  * The rules, exactly as designed:
  *   - Only runners hide. "It" holds no keys — predators do not hide.
- *   - Each player is dealt keys to about half the map's wardrobes at round start, so no
- *     hiding spot is safe for everyone and knowing *your* wardrobes is part of knowing
- *     the map.
+ *   - Keys are not dealt: one key per wardrobe lies on the floor at a seeded-random open
+ *     tile (away from spawns and away from its own cabinet). Walk over a key to claim it
+ *     for the round — first claimant keeps it, so keys are contested map knowledge.
  *   - Inside, you are invisible and untaggable — and blind. Nothing tells you whether the
  *     chaser has left the room. Stepping out beside a waiting It is the catch it sounds
  *     like: there is deliberately no exit immunity.
+ *   - One body per wardrobe: an occupied cabinet refuses everyone else, key or no key.
+ *     (With floor keys this is nearly structural — one key exists per wardrobe — but the
+ *     sim enforces it directly so no future key rule can ever double-book a cabinet.)
  *   - A used wardrobe refuses you for 20 seconds. Other wardrobes are fine.
  *   - The door will not shelter you forever: it swings open on its own after 10 seconds.
  *     (Not in the original spec, but without it "hide until the clock runs out" would be
@@ -36,24 +50,79 @@ import { random, type World } from './world.ts'
  */
 
 const ENTER_SQ = WARDROBE_ENTER_R * WARDROBE_ENTER_R
+const GRAB_SQ = KEY_GRAB_R * KEY_GRAB_R
+const CLEAR_SQ = KEY_SPAWN_CLEAR * KEY_SPAWN_CLEAR
+const SPACING_SQ = PICKUP_SPACING * PICKUP_SPACING
 const COOLDOWN_TICKS = Math.ceil(WARDROBE_COOLDOWN_MS / TICK_MS)
 const MIN_HIDE_TICKS = Math.ceil(WARDROBE_MIN_HIDE_MS / TICK_MS)
 const MAX_HIDE_TICKS = Math.ceil(WARDROBE_MAX_HIDE_MS / TICK_MS)
 
-/** Deals each player keys to ~half the map's wardrobes, from the world's own RNG stream. */
-export const dealKeys = (w: World): void => {
+/**
+ * Drops one key per wardrobe onto a seeded-random open tile, clear of every spawn point
+ * and every wardrobe (bounded rerolls, so the tick discipline holds even on a bad seed).
+ * Nobody holds anything at round start: finding a key is the first errand of the round.
+ */
+export const spawnKeys = (w: World): void => {
   w.keys.fill(0)
+  w.keyTaken.fill(1) // slots beyond the map's count stay taken: never rendered, never grabbed
   const count = w.map.wardrobes.length / 4
-  if (count === 0) return
-  const perPlayer = Math.max(1, Math.round(count * WARDROBE_KEY_FRACTION))
+  const open = w.map.openTiles
 
-  for (let s = 0; s < MAX_PLAYERS; s++) {
-    // Deal `perPlayer` distinct keys by walking the wardrobe list from a random offset
-    // with a random coprime-ish stride — distinct by construction, no retry loops.
-    const offset = Math.floor(random(w) * count)
-    const stride = 1 + Math.floor(random(w) * Math.max(1, count - 1))
-    for (let k = 0; k < perPlayer; k++) {
-      w.keys[s * MAX_WARDROBES + ((offset + k * stride) % count)] = 1
+  for (let i = 0; i < count; i++) {
+    let x = 0
+    let y = 0
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const tile = open[Math.floor(random(w) * open.length)]!
+      x = tileCenterX(tile % MAP_TILES_X)
+      y = tileCenterY(Math.floor(tile / MAP_TILES_X))
+      let clear = true
+      for (let sp = 0; clear && sp < SPAWNS_PER_MAP; sp++) {
+        const dx = tileCenterX(w.map.spawns[sp * 2]!) - x
+        const dy = tileCenterY(w.map.spawns[sp * 2 + 1]!) - y
+        if (dx * dx + dy * dy < CLEAR_SQ) clear = false
+      }
+      for (let c = 0; clear && c < count; c++) {
+        const dx = wardrobeCenterX(w.map, c) - x
+        const dy = wardrobeCenterY(w.map, c) - y
+        if (dx * dx + dy * dy < CLEAR_SQ) clear = false
+      }
+      // Keep keys apart from each other: one walk-over must never scoop up two.
+      for (let k = 0; clear && k < i; k++) {
+        const dx = w.keyX[k]! - x
+        const dy = w.keyY[k]! - y
+        if (dx * dx + dy * dy < SPACING_SQ) clear = false
+      }
+      if (clear) break
+    }
+    w.keyX[i] = x
+    w.keyY[i] = y
+    w.keyTaken[i] = 0
+  }
+}
+
+/**
+ * Key pickups. A live human runner walking over an unclaimed key takes it: predators
+ * ("It" and the mid-metamorphosis) do not pick up keys, the hidden are off the floor,
+ * the unconscious are in no state to grab anything, and bots never hide so they never
+ * deny a human a key. Lowest slot wins a same-tick tie — deterministic.
+ */
+export const updateKeys = (w: World): void => {
+  const count = w.map.wardrobes.length / 4
+  for (let i = 0; i < count; i++) {
+    if (w.keyTaken[i] === 1) continue
+    const kx = w.keyX[i]!
+    const ky = w.keyY[i]!
+    for (let s = 0; s < MAX_PLAYERS; s++) {
+      if (w.active[s] === 0 || w.isBot[s] === 1) continue
+      if (s === w.itSlot || s === w.turningSlot) continue
+      if (w.hiddenIn[s] !== NO_SLOT) continue
+      if (w.tick < w.unconsciousUntilTick[s]!) continue
+      const dx = w.x[s]! - kx
+      const dy = w.y[s]! - ky
+      if (dx * dx + dy * dy > GRAB_SQ) continue
+      w.keyTaken[i] = 1
+      w.keys[s * MAX_WARDROBES + i] = 1
+      break
     }
   }
 }
@@ -63,6 +132,14 @@ export const isHidden = (w: World, slot: number): boolean => w.hiddenIn[slot] !=
 export const updateWardrobes = (w: World, inputs: Uint8Array): void => {
   const count = w.map.wardrobes.length / 4
   if (count === 0) return
+
+  // Occupancy bitmask, taken BEFORE any exits this tick resolve: a cabinet vacated this
+  // tick accepts nobody until the next (conservative, and it keeps the loop order-free).
+  // Entries granted below set their bit immediately, so one tick can never double-book.
+  let occupied = 0
+  for (let s = 0; s < MAX_PLAYERS; s++) {
+    if (w.active[s] === 1 && w.hiddenIn[s]! !== NO_SLOT) occupied |= 1 << w.hiddenIn[s]!
+  }
 
   for (let s = 0; s < MAX_PLAYERS; s++) {
     if (w.active[s] === 0) continue
@@ -91,6 +168,7 @@ export const updateWardrobes = (w: World, inputs: Uint8Array): void => {
     if (packed === 0) continue
 
     for (let i = 0; i < count; i++) {
+      if ((occupied >> i) & 1) continue // one body per wardrobe, no exceptions
       if (w.keys[s * MAX_WARDROBES + i] === 0) continue
       if (w.tick < w.wardrobeCooldownUntil[s * MAX_WARDROBES + i]!) continue
       const dx = wardrobeCenterX(w.map, i) - w.x[s]!
@@ -101,6 +179,7 @@ export const updateWardrobes = (w: World, inputs: Uint8Array): void => {
       const iy = INPUT_DIR_Y[packed & 0x0f]!
       if (ix * dx + iy * dy <= 0) continue
 
+      occupied |= 1 << i
       w.hiddenIn[s] = i
       w.hiddenSinceTick[s] = w.tick
       w.x[s] = wardrobeCenterX(w.map, i)

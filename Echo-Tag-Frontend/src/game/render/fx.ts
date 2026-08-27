@@ -1,6 +1,24 @@
-import { Decor, IT_RING_COLOR, MAP_TILE, PLAYER_RADIUS, type GameMap, type World } from '@echo-tag/shared'
+import {
+  Decor,
+  IT_RING_COLOR,
+  MAP_TILE,
+  NO_SLOT,
+  PLAYER_RADIUS,
+  TICK_MS,
+  TRANSFORM_DELAY_MS,
+  type GameMap,
+  type World,
+} from '@echo-tag/shared'
 import { Container, Sprite, type Texture } from 'pixi.js'
-import { LAMP_LIGHT_ALPHA, LAMP_LIGHT_RADIUS, LANTERN_ALPHA, LANTERN_RADIUS, LANTERN_TINT, MAX_LAMPS } from '../theme.ts'
+import {
+  LAMP_LIGHT_ALPHA,
+  LAMP_LIGHT_RADIUS,
+  LANTERN_ALPHA,
+  LANTERN_RADIUS,
+  LANTERN_TINT,
+  MAX_LAMPS,
+  TURN_GLOW_TINT,
+} from '../theme.ts'
 
 /**
  * The "It" indicator.
@@ -22,6 +40,8 @@ export interface FxLayer {
   ring: Sprite
   /** Tight bright core — survives a crowded foreground. */
   core: Sprite
+  /** Cold violet glow under the metamorphosing player — the ghost taking hold. */
+  turnGlow: Sprite
   /** The local player's lantern: warm light that justifies the vision circle. */
   lantern: Sprite
   /** Standing-lamp light pools; rooms glow faintly through the fog. */
@@ -39,6 +59,8 @@ export const createFxLayer = (glow: Texture): FxLayer => {
   }
   const ring = make()
   const core = make()
+  const turnGlow = make()
+  turnGlow.tint = TURN_GLOW_TINT
   // The lantern shares the glow texture and additive blend, so the fx layer stays one
   // draw call. It renders under the halo: light first, marking on top.
   const lantern = make()
@@ -57,9 +79,10 @@ export const createFxLayer = (glow: Texture): FxLayer => {
     lamps.push(lamp)
   }
   container.addChild(lantern)
+  container.addChild(turnGlow)
   container.addChild(ring)
   container.addChild(core)
-  return { container, ring, core, lantern, lamps }
+  return { container, ring, core, turnGlow, lantern, lamps }
 }
 
 /** Repositions the lamp light pools for a map. Call on map change. */
@@ -89,6 +112,8 @@ export const renderLantern = (layer: FxLayer, wx: number, wy: number, nowMs: num
   l.alpha = LANTERN_ALPHA + 0.018 * Math.sin(nowMs * 0.0013) + 0.012 * Math.sin(nowMs * 0.0041)
 }
 
+const TRANSFORM_TICKS = Math.ceil(TRANSFORM_DELAY_MS / TICK_MS)
+
 export const renderFx = (
   layer: FxLayer,
   world: World,
@@ -97,6 +122,25 @@ export const renderFx = (
   alpha: number,
   nowMs: number,
 ): void => {
+  // The metamorphosis halo: a cold violet pool under the turning player, swelling and
+  // pulsing faster as the ghost takes hold. Distinct from the ghost's lantern-white so
+  // "danger forming" and "danger" never read the same.
+  const turning = world.turningSlot
+  if (turning !== NO_SLOT && world.active[turning] === 1) {
+    const g = layer.turnGlow
+    const progress = 1 - Math.min(1, Math.max(0, (world.turningUntilTick - world.tick) / TRANSFORM_TICKS))
+    const pulse = 0.5 + 0.5 * Math.sin(nowMs * (0.006 + progress * 0.02))
+    g.visible = true
+    g.x = prevX[turning]! + (world.x[turning]! - prevX[turning]!) * alpha
+    g.y = prevY[turning]! + (world.y[turning]! - prevY[turning]!) * alpha
+    const size = PLAYER_RADIUS * (3.4 + progress * 2.6 + pulse * 0.9)
+    g.width = size
+    g.height = size
+    g.alpha = 0.3 + progress * 0.3 + pulse * 0.2
+  } else {
+    layer.turnGlow.visible = false
+  }
+
   const it = world.itSlot
   if (it < 0 || world.active[it] === 0) {
     layer.ring.visible = false

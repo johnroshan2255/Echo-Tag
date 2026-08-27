@@ -34,6 +34,9 @@ export const ArenaState = schema(
     isPrivate: 'boolean',
     /** Humans currently connected (bots are sim-side only). */
     humans: 'uint8',
+    /** Private rooms: how many bots the host wants at round start (0 = humans only).
+     * Public rooms ignore this and fill to MIN_PLAYERS as always. */
+    bots: 'uint8',
     players: { map: PlayerMeta },
   },
   'ArenaState',
@@ -48,6 +51,7 @@ export const createArenaState = (): ArenaStateT => {
   s.hostId = ''
   s.isPrivate = false
   s.humans = 0
+  s.bots = 0
   s.players = new MapSchema()
   return s
 }

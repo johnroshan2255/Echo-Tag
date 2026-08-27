@@ -65,6 +65,10 @@ export const createKeyboard = (target: EventTarget = globalThis): Keyboard => {
   const onDown = (e: Event): void => {
     const ke = e as KeyboardEvent
     if (ke.repeat) return
+    // Typing (chat, future text fields) must never steer the avatar. Key RELEASES are
+    // still honoured below, so a movement key held into a focus change cannot stick.
+    const t = ke.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
     if (!set(ke.code, true)) return
     // Arrow keys scroll the page inside an iframe otherwise, which on Poki means the whole
     // game shifts under the player mid-round.

@@ -13,12 +13,13 @@ import type { World } from './world.ts'
 /**
  * Unconsciousness on trail contact.
  *
- * Trails are not walls (ADR 0012) — they are hazards. WALK into any player's breadcrumbs,
- * your own included, and you faint for UNCONSCIOUS_MS: input dead, body collapsed, fully
- * vulnerable to the ghost. Recovery is automatic — no mashing.
+ * Trails are not walls (ADR 0012) — they are hazards, and only the GHOST has one (humans
+ * leave no live trail; see rebuildEchoBodies). WALK into the ghost's breadcrumbs — the
+ * ghost's own past included — and you faint for UNCONSCIOUS_MS: input dead, body
+ * collapsed, fully vulnerable to the ghost. Recovery is automatic — no mashing.
  *
- * "Walk into" is enforced literally, with three guards that all exist because trails MOVE
- * (they replay their owner's past) and every player permanently owns one:
+ * "Walk into" is enforced literally, with three guards that all exist because the trail
+ * MOVES (it replays the ghost's past) and the ghost is standing in its own:
  *   1. speed gate — you must be moving faster than KO_MIN_SPEED. A replay sweeping over a
  *      stationary player is not the player's mistake.
  *   2. edge transition — KO fires only when you gain overlap with an owner's trail you

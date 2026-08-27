@@ -41,8 +41,6 @@ export const MAX_LAMPS = 12
 export const WARDROBE_FILL = 0x3c2b1e // darker timber than tables — a tall cabinet
 export const WARDROBE_PANEL = 0x51392a
 export const WARDROBE_HANDLE = 0xc9a05a
-/** Keyhole marker over wardrobes the local player can use right now. */
-export const KEY_MARKER = 0xffd9a3
 export const WINDOW_GLOW = 0xffe3ad
 export const WINDOW_FRAME = 0x2a2337
 /** How tightly the fog closes while you are inside a wardrobe: you see the door, no more. */
@@ -95,6 +93,16 @@ export const BAT_SIZE = 9
 /** Seconds between bat flocks (min..max). */
 export const BAT_LULL_MIN = 16
 export const BAT_LULL_MAX = 36
+
+// ── Transformation wreath ──
+// The metamorphosis telegraph: a whirl of moonlit bats around the turning player,
+// tightening as the ghost forms. Unlike the ambient bats this IS gameplay information,
+// so it is bright enough to read on the bare dusk floor, not just inside the halo.
+export const WREATH_COUNT = 10
+export const WREATH_TINT = 0x9d82ea
+export const WREATH_SIZE = 8
+/** The turning player's halo: a cold violet, distinct from the ghost's lantern-white. */
+export const TURN_GLOW_TINT = 0x7a4bd8
 
 // ── Fireflies ──
 export const FIREFLY_TINT = 0xffe9b0

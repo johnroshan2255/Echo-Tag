@@ -1,4 +1,13 @@
-import { ACCEL, FRICTION, IT_SPEED_MULT, PLAYER_RADIUS, PLAYER_SPEED, TICK_MS, TURNING_SPEED_MULT } from '../constants.ts'
+import {
+  ACCEL,
+  FRICTION,
+  GOO_SLOW_MULT,
+  IT_SPEED_MULT,
+  PLAYER_RADIUS,
+  PLAYER_SPEED,
+  TICK_MS,
+  TURNING_SPEED_MULT,
+} from '../constants.ts'
 import { resolveWallCollisions } from '../math/collision.ts'
 import { IDLE_INPUT, INPUT_DIR_X, INPUT_DIR_Y, INPUT_MAG } from './input.ts'
 import type { World } from './world.ts'
@@ -22,12 +31,14 @@ const DT = TICK_MS / 1000
 export const integratePlayer = (w: World, slot: number, packedInput: number): void => {
   const isIt = w.itSlot === slot
   // Mid-metamorphosis players stumble: enough motion to read as alive, not enough to flee.
+  // Goo stacks multiplicatively on top of whatever you are: a slowed ghost is a slow ghost.
+  const gooMult = w.tick < w.slowedUntilTick[slot]! ? GOO_SLOW_MULT : 1
   const maxSpeed =
-    slot === w.turningSlot
+    (slot === w.turningSlot
       ? PLAYER_SPEED * TURNING_SPEED_MULT
       : isIt
         ? PLAYER_SPEED * IT_SPEED_MULT
-        : PLAYER_SPEED
+        : PLAYER_SPEED) * gooMult
 
   let vx = w.vx[slot]!
   let vy = w.vy[slot]!

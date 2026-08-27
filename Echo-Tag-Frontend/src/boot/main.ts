@@ -115,14 +115,35 @@ const start = async (mode: GameMode): Promise<void> => {
     gameModule = null
     menu.classList.remove('busy')
     play.textContent = 'RETRY'
+    const full = String(err).toLowerCase().includes('full')
     status.textContent =
       mode.kind === 'bots'
         ? 'Could not load the game. Check your connection.'
         : mode.kind === 'code'
-          ? 'No room with that code. Check it and try again.'
+          ? full
+            ? 'That room is full — 12 players max.'
+            : 'No room with that code. Check it and try again.'
           : 'Could not reach the game server — try PLAY for a bots round.'
+    // A dead room link must not keep re-triggering the rejoin on every refresh.
+    if (mode.kind === 'code') {
+      try {
+        history.replaceState(null, '', location.pathname)
+      } catch {
+        /* embedded contexts may forbid history access */
+      }
+    }
     console.error('boot: game failed to start', err)
   }
+}
+
+// ── Refresh-rejoin ───────────────────────────────────────────────────────────
+// Hosting or joining puts the room code in the URL (?room=CODE), so a refresh drops the
+// player straight back into their room, mid-round included. Audio starts suspended
+// without a user gesture; the engine resumes it on the first press or tap.
+const roomParam = new URLSearchParams(location.search).get('room')?.toUpperCase() ?? ''
+if (/^[A-Z]{5}$/.test(roomParam)) {
+  status.textContent = `Rejoining room ${roomParam}...`
+  void start({ kind: 'code', code: roomParam })
 }
 
 play.addEventListener('click', () => void start({ kind: 'bots' }))

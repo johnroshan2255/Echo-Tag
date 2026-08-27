@@ -14,9 +14,10 @@ import { ECHO, ECHO_GRID_H, ECHO_GRID_W } from './templates.ts'
 /**
  * Echo silhouettes.
  *
- * 12 players x 15 solid bodies x 29 squares = 5,220 particles in one container, and this is
- * the single biggest thing on screen at 2:30. Two decisions keep it affordable and, more
- * importantly, *legible*:
+ * Capacity is 12 players x 15 bodies x 16 squares = 2,880 particles in one container, though
+ * only the ghost's 15 bodies are ever live at once (ADR 0013) — humans leave no trail, so the
+ * rest stay parked. Two decisions keep the drawn trail affordable and, more importantly,
+ * *legible*:
  *
  *   1. Echoes use a 29-cell blocky silhouette, not the 168-cell avatar. Every game that has
  *      shipped a past-self mechanic converges on the same lesson: ghosts must be visually

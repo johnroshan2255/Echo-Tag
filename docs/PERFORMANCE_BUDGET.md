@@ -47,7 +47,7 @@ The player can press Play at ~120ms. Whether the engine arrived yet is invisible
 | Item | Budget | Note |
 |---|---|---|
 | Draw calls | ≤ 8 | 2 particle containers + arena + rings + HUD |
-| Particles transformed | 7,200 | 12×180 live + 180×28 echo |
+| Particles transformed | 4,896 | 12×168 body + 180×16 echo capacity (only the ghost's 15 bodies drawn; the rest parked, ADR 0013) |
 | Sim step | 0.4 ms | 20Hz, so only every 3rd frame |
 | Allocations | **0** | typed arrays + pooled particles; any per-frame `new` is a bug |
 | GC pauses | 0 visible | verified in the Chrome perf panel on a throttled profile |

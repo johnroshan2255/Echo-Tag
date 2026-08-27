@@ -4,6 +4,7 @@ import {
   MAP_COUNT,
   MAX_LOBBY_WAIT_MS,
   MAX_PLAYERS,
+  MAX_TOOL_SPAWNS,
   MIN_PLAYERS,
   MSG,
   RoundPhase,
@@ -13,7 +14,9 @@ import {
   createWorld,
   enterPhase,
   packKeys,
+  queueToolUse,
   removePlayer,
+  setIt,
   setMap,
   stepWorld,
   syntheticDriver,
@@ -23,6 +26,7 @@ import {
   type World,
 } from '@echo-tag/shared'
 import { createDriverState } from '@echo-tag/shared/ai'
+import { env } from '../config/env.ts'
 import { createArenaState, createPlayerMeta, type ArenaStateT } from './state/ArenaState.ts'
 
 /**
@@ -49,8 +53,15 @@ interface JoinOptions {
 
 const isBotFill = (w: World, slot: number): boolean => w.isBot[slot] === 1
 
+/** An empty room survives this long — a refresh (leave + rejoin by ?room=CODE) must not
+ * destroy the room the player is trying to come back to. */
+const EMPTY_ROOM_GRACE_MS = 30_000
+
 export class ArenaRoom extends Room<{ state: ArenaStateT }> {
   override maxClients = MAX_PLAYERS
+  // Disposal is manual (see emptyAt in tick): the default dispose-on-empty would kill a
+  // room the instant its last player refreshes, breaking the URL rejoin.
+  override autoDispose = false
   override state = createArenaState()
 
   private world: World = createWorld((Math.random() * 0xffffffff) | 0, 0)
@@ -64,6 +75,8 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
   private lobbyDeadline = Number.POSITIVE_INFINITY
   private leaderboardUntil = 0
   private scorePatchAcc = 0
+  /** Wall-clock time at which an empty room finally disposes. Infinity while occupied. */
+  private emptyAt = Number.POSITIVE_INFINITY
 
   override onCreate(options: JoinOptions): void {
     this.state.isPrivate = Boolean(options.code)
@@ -85,12 +98,63 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
       this.lastHumanInput[slot] = bytes[2]!
     })
 
+    this.onMessage(MSG.Use, (client, invSlot: number) => {
+      const slot = this.slotOf.get(client.sessionId)
+      if (slot === undefined) return
+      if (invSlot !== 0 && invSlot !== 1) return
+      queueToolUse(this.world, slot, invSlot)
+    })
+
+    this.onMessage(MSG.Chat, (client, text: unknown) => {
+      // Pure relay: sanitised, rate-limited, broadcast to the room, NEVER stored — chat
+      // exists only in the room context, exactly as long as the clients showing it.
+      const slot = this.slotOf.get(client.sessionId)
+      if (slot === undefined || typeof text !== 'string') return
+      const now = Date.now()
+      if (now < (this.chatNextAt.get(client.sessionId) ?? 0)) return
+      const clean = text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 120)
+      if (clean.length === 0) return
+      this.chatNextAt.set(client.sessionId, now + 600)
+      this.broadcast(MSG.Chat, { slot, text: clean })
+    })
+
+    this.onMessage(MSG.Bots, (client, n: unknown) => {
+      // The host of a private room decides how many bots join at round start — zero is a
+      // legitimate choice: four friends, one ghost, nobody artificial.
+      if (client.sessionId !== this.state.hostId) return
+      if (!this.state.isPrivate || this.world.phase !== RoundPhase.Lobby) return
+      if (typeof n !== 'number' || !Number.isInteger(n)) return
+      this.state.bots = Math.max(0, Math.min(MAX_PLAYERS - this.state.humans, n))
+    })
+
     this.onMessage(MSG.Go, (client) => {
       // Only the host starts a private lobby; public lobbies start themselves.
       if (client.sessionId !== this.state.hostId) return
       if (this.world.phase !== RoundPhase.Lobby) return
+      // A private round needs at least two humans — a tag game against nobody is a walk.
+      if (this.state.isPrivate && this.state.humans < 2) return
       this.startRound()
     })
+
+    if (env.testHooks) {
+      // Test-only seams for tools/check/mp-probe.ts, which needs deterministic scenarios
+      // (walk into a keyed wardrobe, get tagged by the ghost) that real matchmaking cannot
+      // stage. Registered ONLY when the probe's own server spawn sets TEST_HOOKS=true —
+      // a production boot never has these messages.
+      this.onMessage('test:teleport', (_client, m: { slot: number; x: number; y: number }) => {
+        if (!Number.isInteger(m?.slot) || m.slot < 0 || m.slot >= MAX_PLAYERS) return
+        if (this.world.active[m.slot] === 0) return
+        this.world.x[m.slot] = m.x
+        this.world.y[m.slot] = m.y
+        this.world.vx[m.slot] = 0
+        this.world.vy[m.slot] = 0
+      })
+      this.onMessage('test:setIt', (_client, m: { slot: number }) => {
+        if (!Number.isInteger(m?.slot) || m.slot < 0 || m.slot >= MAX_PLAYERS) return
+        if (this.world.active[m.slot] === 0) return
+        setIt(this.world, m.slot)
+      })
+    }
 
     this.setSimulationInterval(() => this.tick(), TICK_MS)
   }
@@ -110,6 +174,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     }
     if (slot < 0) throw new Error('room full')
 
+    this.emptyAt = Number.POSITIVE_INFINITY
     this.slotOf.set(client.sessionId, slot)
     this.inputs[slot] = 0
     this.lastHumanInput[slot] = 0
@@ -128,6 +193,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
   }
 
   override onLeave(client: Client, _code: number): void {
+    this.chatNextAt.delete(client.sessionId)
     const slot = this.slotOf.get(client.sessionId)
     if (slot === undefined) return
     this.slotOf.delete(client.sessionId)
@@ -137,19 +203,29 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     if (this.state.hostId === client.sessionId) {
       this.state.hostId = this.slotOf.keys().next().value ?? ''
     }
+    // Last human out: hold the room for the grace window — they may just be refreshing.
+    if (this.state.humans === 0) this.emptyAt = Date.now() + EMPTY_ROOM_GRACE_MS
   }
 
   // ── Round lifecycle ──────────────────────────────────────────────────────────
 
   private startRound(): void {
-    // Fill the empty seats with bots so the round starts full-feeling (GDD §7).
-    let seats = this.world.playerCount
-    for (let s = 0; seats < MIN_PLAYERS && s < MAX_PLAYERS; s++) {
-      if (this.world.active[s] === 1) continue
+    // Seat the bots. Public rooms fill to MIN_PLAYERS so quick match always feels alive
+    // (GDD §7); private rooms seat exactly as many bots as the host asked for — including
+    // none. Reconcile rather than only add: a host can also dial bots DOWN between rounds.
+    const target = this.state.isPrivate
+      ? Math.min(MAX_PLAYERS, this.state.humans + this.state.bots)
+      : Math.max(MIN_PLAYERS, this.world.playerCount)
+    for (let s = 0; s < MAX_PLAYERS && this.world.playerCount > target; s++) {
+      if (this.world.active[s] === 1 && isBotFill(this.world, s)) {
+        removePlayer(this.world, s)
+        this.state.players.delete(`b${s}`)
+      }
+    }
+    while (this.world.playerCount < target) {
       const slot = addPlayer(this.world, true)
       if (slot < 0) break
       this.state.players.set(`b${slot}`, createPlayerMeta(slot, this.world.colorSlot[slot]!, true))
-      seats++
     }
 
     enterPhase(this.world, RoundPhase.Countdown)
@@ -168,6 +244,11 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
 
   private tick(): void {
     const w = this.world
+
+    if (Date.now() >= this.emptyAt) {
+      void this.disconnect() // nobody came back inside the grace window
+      return
+    }
 
     if (w.phase === RoundPhase.Lobby) {
       if (this.state.humans > 0 && Date.now() >= this.lobbyDeadline) this.startRound()
@@ -209,6 +290,31 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
   // Humans' most recent input bytes, kept apart so the bot driver can't clobber them.
   private lastHumanInput = new Uint8Array(MAX_PLAYERS)
 
+  // Chat rate limit: earliest wall-clock time each client may speak again.
+  private chatNextAt = new Map<string, number>()
+
+  /** Floor-key spawn positions as flat (x, y) pairs. Fixed within a round; empty in the
+   * lobby, where no keys exist yet (the round-setup broadcast delivers the real ones). */
+  private keySpawns(): number[] {
+    if (this.world.phase === RoundPhase.Lobby) return []
+    const count = this.world.map.wardrobes.length / 4
+    const out: number[] = []
+    for (let i = 0; i < count; i++) {
+      out.push(Math.round(this.world.keyX[i]!), Math.round(this.world.keyY[i]!))
+    }
+    return out
+  }
+
+  /** Floor-tool spawns as flat (x, y, type) triples. Fixed within a round; empty in lobby. */
+  private toolSpawns(): number[] {
+    if (this.world.phase === RoundPhase.Lobby) return []
+    const out: number[] = []
+    for (let i = 0; i < MAX_TOOL_SPAWNS; i++) {
+      out.push(Math.round(this.world.toolX[i]!), Math.round(this.world.toolY[i]!), this.world.toolType[i]!)
+    }
+    return out
+  }
+
   private sendWelcome(client: Client, slot: number): void {
     const history = new ArrayBuffer(HISTORY_BLOB_BYTES)
     writeHistoryBlob(this.world, new DataView(history))
@@ -217,6 +323,8 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
       mapIndex: this.world.map.index,
       tick: this.world.tick,
       keys: packKeys(this.world, slot),
+      keySpawns: this.keySpawns(),
+      toolSpawns: this.toolSpawns(),
       colors: Array.from(this.world.colorSlot),
       history: new Uint8Array(history),
     })
@@ -228,6 +336,8 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
       client?.send(MSG.Round, {
         mapIndex: this.world.map.index,
         keys: packKeys(this.world, slot),
+        keySpawns: this.keySpawns(),
+        toolSpawns: this.toolSpawns(),
         colors: Array.from(this.world.colorSlot),
       })
     }

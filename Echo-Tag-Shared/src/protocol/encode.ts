@@ -1,4 +1,4 @@
-import { MAX_DOORS, MAX_PLAYERS, MAX_WARDROBES } from '../constants.ts'
+import { MAX_DEPLOYED, MAX_DOORS, MAX_PLAYERS, MAX_TOOL_SPAWNS, MAX_WARDROBES, TOOL_SLOTS } from '../constants.ts'
 import { NO_SLOT } from '../types.ts'
 import type { World } from '../sim/world.ts'
 
@@ -18,17 +18,28 @@ import type { World } from '../sim/world.ts'
  *   u8  mapIndex
  *   i8  turningSlot   (the metamorphosing player, or -1)
  *   u8  turningTicksLeft (clamped to 255 — clients drive the animation from this)
+ *   u16 itAgeTicks    (ticks since the ghost was crowned, clamped — mirrors gate the
+ *                      trail on this so a late joiner never renders less trail than
+ *                      the server collides with)
+ *   u8  keyTaken      bitmask: floor key i has been claimed (spawn positions travel in
+ *                      the welcome/round messages; they never move within a round)
+ *   u8  toolTaken     bitmask: floor tool i has been claimed (spawns in welcome/round)
+ *   u8  depCount      then per deployed tool: u8 (poolIdx<<4 | type), i16 x, i16 y,
+ *                      u16 ticksLeft — clients rebuild the pool from this each snapshot
  *   u8  doorCount     then per door: u8 openness (0..255)
  *   u8  playerCount   then per player:
  *     u8  slot
  *     i16 x, i16 y    (quantised world units — invisible at our zoom)
  *     u8  flags       bit0 immune · bit1 isBot · bit2 hidden · bits 3-5 wardrobe index ·
- *                     bit6 unconscious
+ *                     bit6 unconscious · bit7 goo-slowed
+ *     u8  keys        bitmask of wardrobe keys this player holds (drives the keyhole
+ *                     markers, which update live as keys are grabbed)
+ *     u8  held        tool inventory, one TOOL_* nibble per hand slot (drives the HUD)
  *
  * Both sides share this file, so the format cannot drift between them.
  */
 
-export const SNAPSHOT_MAX_BYTES = 14 + MAX_DOORS + 1 + MAX_PLAYERS * 6
+export const SNAPSHOT_MAX_BYTES = 18 + MAX_DEPLOYED * 7 + 1 + MAX_DOORS + 1 + MAX_PLAYERS * 8
 
 export const writeSnapshot = (w: World, mapIndex: number, out: DataView): number => {
   out.setUint32(0, w.tick, true)
@@ -38,10 +49,36 @@ export const writeSnapshot = (w: World, mapIndex: number, out: DataView): number
   out.setUint8(10, mapIndex)
   out.setInt8(11, w.turningSlot)
   out.setUint8(12, w.turningSlot >= 0 ? Math.min(255, Math.max(0, w.turningUntilTick - w.tick)) : 0)
+  out.setUint16(13, Math.min(65535, Math.max(0, w.tick - w.itSinceTick)), true)
+
+  let takenMask = 0
+  for (let i = 0; i < MAX_WARDROBES; i++) {
+    if (w.keyTaken[i] === 1) takenMask |= 1 << i
+  }
+  out.setUint8(15, takenMask)
+
+  let toolMask = 0
+  for (let i = 0; i < MAX_TOOL_SPAWNS; i++) {
+    if (w.toolTaken[i] === 1) toolMask |= 1 << i
+  }
+  out.setUint8(16, toolMask)
+
+  const depCountAt = 17
+  let o = 18
+  let deps = 0
+  for (let d = 0; d < MAX_DEPLOYED; d++) {
+    if (w.depType[d] === 0) continue
+    out.setUint8(o, (d << 4) | w.depType[d]!)
+    out.setInt16(o + 1, Math.round(w.depX[d]!), true)
+    out.setInt16(o + 3, Math.round(w.depY[d]!), true)
+    out.setUint16(o + 5, Math.min(65535, Math.max(0, w.depUntilTick[d]! - w.tick)), true)
+    o += 7
+    deps++
+  }
+  out.setUint8(depCountAt, deps)
 
   const doorCount = w.map.doors.length / 3
-  out.setUint8(13, doorCount)
-  let o = 14
+  out.setUint8(o++, doorCount)
   for (let d = 0; d < doorCount; d++) {
     out.setUint8(o++, Math.round(w.doorOpen[d]! * 255))
   }
@@ -60,9 +97,12 @@ export const writeSnapshot = (w: World, mapIndex: number, out: DataView): number
         (w.isBot[s] === 1 ? 2 : 0) |
         (hidden ? 4 : 0) |
         ((hidden ? w.hiddenIn[s]! & 0x07 : 0) << 3) |
-        (w.tick < w.unconsciousUntilTick[s]! ? 64 : 0),
+        (w.tick < w.unconsciousUntilTick[s]! ? 64 : 0) |
+        (w.tick < w.slowedUntilTick[s]! ? 128 : 0),
     )
-    o += 6
+    out.setUint8(o + 6, packKeys(w, s))
+    out.setUint8(o + 7, (w.held[s * TOOL_SLOTS]! & 0x0f) | ((w.held[s * TOOL_SLOTS + 1]! & 0x0f) << 4))
+    o += 8
     n++
   }
   out.setUint8(countAt, n)
@@ -77,6 +117,17 @@ export interface Snapshot {
   mapIndex: number
   turningSlot: number
   turningTicksLeft: number
+  /** Ticks since the current ghost was crowned; gates the trail on mirrors. */
+  itAgeTicks: number
+  /** Bitmask: floor key i has been claimed. */
+  keyTaken: number
+  /** Bitmask: floor tool i has been claimed. */
+  toolTaken: number
+  /** Deployed tools, decoded into fixed pool arrays indexed by pool slot. */
+  depType: Uint8Array
+  depX: Float32Array
+  depY: Float32Array
+  depTicksLeft: Uint16Array
   doorOpen: Float32Array
   doorCount: number
   /** Dense per-slot arrays; inactive slots read active=0. */
@@ -87,6 +138,11 @@ export interface Snapshot {
   isBot: Uint8Array
   hiddenIn: Int8Array
   unconscious: Uint8Array
+  slowed: Uint8Array
+  /** Per-slot bitmask of held wardrobe keys. */
+  keys: Uint8Array
+  /** Per-slot tool inventory: TOOL_* nibble per hand (low = slot A, high = slot B). */
+  held: Uint8Array
 }
 
 /** A reusable snapshot holder — decode into it, never allocate per packet. */
@@ -98,6 +154,13 @@ export const createSnapshot = (): Snapshot => ({
   mapIndex: 0,
   turningSlot: NO_SLOT,
   turningTicksLeft: 0,
+  itAgeTicks: 0,
+  keyTaken: 0,
+  toolTaken: 0,
+  depType: new Uint8Array(MAX_DEPLOYED),
+  depX: new Float32Array(MAX_DEPLOYED),
+  depY: new Float32Array(MAX_DEPLOYED),
+  depTicksLeft: new Uint16Array(MAX_DEPLOYED),
   doorOpen: new Float32Array(MAX_DOORS),
   doorCount: 0,
   active: new Uint8Array(MAX_PLAYERS),
@@ -107,6 +170,9 @@ export const createSnapshot = (): Snapshot => ({
   isBot: new Uint8Array(MAX_PLAYERS),
   hiddenIn: new Int8Array(MAX_PLAYERS),
   unconscious: new Uint8Array(MAX_PLAYERS),
+  slowed: new Uint8Array(MAX_PLAYERS),
+  keys: new Uint8Array(MAX_PLAYERS),
+  held: new Uint8Array(MAX_PLAYERS),
 })
 
 export const readSnapshot = (src: DataView, into: Snapshot): void => {
@@ -117,9 +183,24 @@ export const readSnapshot = (src: DataView, into: Snapshot): void => {
   into.mapIndex = src.getUint8(10)
   into.turningSlot = src.getInt8(11)
   into.turningTicksLeft = src.getUint8(12)
+  into.itAgeTicks = src.getUint16(13, true)
+  into.keyTaken = src.getUint8(15)
+  into.toolTaken = src.getUint8(16)
 
-  into.doorCount = src.getUint8(13)
-  let o = 14
+  into.depType.fill(0)
+  const depCount = src.getUint8(17)
+  let o = 18
+  for (let i = 0; i < depCount; i++) {
+    const head = src.getUint8(o)
+    const idx = (head >> 4) & 0x0f
+    into.depType[idx] = head & 0x0f
+    into.depX[idx] = src.getInt16(o + 1, true)
+    into.depY[idx] = src.getInt16(o + 3, true)
+    into.depTicksLeft[idx] = src.getUint16(o + 5, true)
+    o += 7
+  }
+
+  into.doorCount = src.getUint8(o++)
   for (let d = 0; d < into.doorCount; d++) {
     into.doorOpen[d] = src.getUint8(o++) / 255
   }
@@ -136,7 +217,10 @@ export const readSnapshot = (src: DataView, into: Snapshot): void => {
     into.isBot[s] = flags & 2 ? 1 : 0
     into.hiddenIn[s] = flags & 4 ? (flags >> 3) & 0x07 : NO_SLOT
     into.unconscious[s] = flags & 64 ? 1 : 0
-    o += 6
+    into.slowed[s] = flags & 128 ? 1 : 0
+    into.keys[s] = src.getUint8(o + 6)
+    into.held[s] = src.getUint8(o + 7)
+    o += 8
   }
 }
 

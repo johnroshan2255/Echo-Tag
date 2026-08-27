@@ -3,6 +3,9 @@
  *
  *   client → server
  *     'i'  input frame        [seq u16, packed u8]
+ *     'u'  use tool           [inventory slot u8] — deploys at the sender's feet
+ *     'c'  chat               a short text line; relayed to the room, never stored
+ *     'n'  bot count          host sets how many bots join at round start (private rooms)
  *     'g'  host pressed start (private lobbies only)
  *
  *   server → client
@@ -15,6 +18,9 @@
  */
 export const MSG = {
   Input: 'i',
+  Use: 'u',
+  Chat: 'c',
+  Bots: 'n',
   Go: 'g',
   Welcome: 'w',
   Round: 'r',

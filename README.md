@@ -1,8 +1,9 @@
 # Echo Tag
 
-A 3-minute multiplayer browser tag game. Every player leaves a **rolling 3-second echo** of their own
-movement behind them — and those echoes are solid. The arena builds its own maze as the round runs.
-Nobody is eliminated. The only goal: **spend as little time as "It" as possible.**
+A 3-minute multiplayer browser tag game. The ghost — the player who is "It" — leaves a
+**rolling 3-second echo** of its own movement behind it; walk into that trail and you black out
+where you stand. Humans leave no trail. Nobody is eliminated. The only goal: **spend as little
+time as "It" as possible.**
 
 Built for Poki: no login, no lobby, interactive in under 300ms.
 
@@ -16,7 +17,9 @@ Built for Poki: no login, no lobby, interactive in under 300ms.
 | `docs/` | Design doc, tech/platform requirements, implementation plan, ADRs. |
 | `tools/` | Headless sim benchmark and the CI bundle-budget gate. |
 
-**Status:** Phase 1 of 8 complete — the simulation is built, tested and benchmarked. Renderer next.
+**Status:** playable end-to-end — sim, renderer, fogged maps with doors and wardrobes,
+touch input, Colyseus multiplayer, synthesised audio, and the Poki packaging pipeline.
+See [`docs/PHASE_PLAN.md`](docs/PHASE_PLAN.md) for what remains before the ship gate.
 
 ## Start here
 
@@ -39,7 +42,7 @@ development. npm workspaces; no other package manager needed.
 ## Check it
 
 ```bash
-npm run verify         # ~3s   types + 22 sim invariants + step-cost/allocation gate
+npm run verify         # ~3s   types + 78 tests (sim invariants + render templates) + step-cost/allocation gate
 npm run check          # ~15s  the above + bundle budget + headless Chrome, 3 viewports
 ```
 

@@ -5,6 +5,8 @@ import {
   PLAYER_COLORS,
   PLAYER_RADIUS,
   TAG_IMMUNITY_MS,
+  TICK_MS,
+  TRANSFORM_DELAY_MS,
   type World,
 } from '@echo-tag/shared'
 import { Part, BODY } from './templates.ts'
@@ -59,6 +61,7 @@ const darken = (color: number, f: number): number => {
 }
 
 const PARKED = -9999
+const TRANSFORM_TICKS = Math.ceil(TRANSFORM_DELAY_MS / TICK_MS)
 
 export const renderPlayers = (
   layer: BodyLayer,
@@ -88,8 +91,19 @@ export const renderPlayers = (
 
     // Interpolate between the last two authoritative ticks. Without this the avatars step
     // at 20Hz while the screen runs at 60.
-    const wx = prevX[p]! + (world.x[p]! - prevX[p]!) * alpha
-    const wy = prevY[p]! + (world.y[p]! - prevY[p]!) * alpha
+    let wx = prevX[p]! + (world.x[p]! - prevX[p]!) * alpha
+    let wy = prevY[p]! + (world.y[p]! - prevY[p]!) * alpha
+
+    // The metamorphosis: the turning player trembles, harder as the ghost takes hold.
+    const turning = p === world.turningSlot
+    const turnProgress = turning
+      ? 1 - Math.min(1, Math.max(0, (world.turningUntilTick - world.tick) / TRANSFORM_TICKS))
+      : 0
+    if (turning) {
+      const tremor = 1.2 + turnProgress * 3.2
+      wx += Math.sin(nowMs * 0.055 + anim.phase[p]!) * tremor
+      wy += Math.cos(nowMs * 0.047 + anim.phase[p]! * 1.3) * tremor
+    }
 
     const vx = world.vx[p]!
     const vy = world.vy[p]!
@@ -113,18 +127,29 @@ export const renderPlayers = (
     const along = moving ? stretchAlong(speed) : 1
     const across = moving ? squashAcross(speed) : 1
     const horizontal = Math.abs(Math.cos(facing)) > Math.abs(Math.sin(facing))
-    const scaleX = baseScale * (horizontal ? along : across)
-    const scaleY = baseScale * (horizontal ? across : along)
+    // A turning body convulses: a slow breathing swell that deepens toward the crowning.
+    const convulse = turning ? 1 + 0.08 * turnProgress * Math.sin(nowMs * 0.02 + anim.phase[p]!) : 1
+    const scaleX = baseScale * (horizontal ? along : across) * convulse
+    const scaleY = baseScale * (horizontal ? across : along) * convulse
 
     const bob = moving ? 0 : idleBob(nowMs, phase)
     const scatterAge = (nowMs - anim.taggedAtMs[p]!) / 1000
     const isIt = p === itSlot
+    // Out cold on the floor: the body reads as a collapsed pile, eyes shut — the ghost
+    // must be able to SPOT a faint through the fog, and the victim must see why their
+    // input is dead. Mirrored in netplay via the snapshot's unconscious flag.
+    const ko = world.tick < world.unconsciousUntilTick[p]!
+    // Goo-slowed: the silhouette's edge drips green so everyone can see who got got.
+    const slowed = world.tick < world.slowedUntilTick[p]!
     const color = PLAYER_COLORS[world.colorSlot[p]! % PLAYER_COLORS.length]!
 
     // A newly-tagged It flashes toward white while immune, so the handover is unmissable.
+    // A TURNING player flickers toward the ghost's white too — slowly at the touch,
+    // frantically just before crowning, so everyone can read how long their head start is.
     const immuneLeft = (world.immuneUntilTick[p]! - world.tick) * 50
-    const flashing = isIt && immuneLeft > 0
-    const flash = flashing ? (Math.sin(nowMs * 0.03) > 0 ? IT_RING_COLOR : color) : color
+    const flashing = (isIt && immuneLeft > 0) || turning
+    const flashHz = turning ? 0.008 + turnProgress * turnProgress * 0.05 : 0.03
+    const flash = flashing ? (Math.sin(nowMs * flashHz) > 0 ? IT_RING_COLOR : color) : color
 
     const blinkScale = blink(nowMs, phase)
 
@@ -134,6 +159,12 @@ export const renderPlayers = (
 
       let ox = cellOffsetX(BODY.gx[i]!)
       let oy = cellOffsetY(BODY.gy[i]!) + bob * CELL_WORLD
+
+      // Collapsed: the whole grid flattens toward the ground and spreads slightly.
+      if (ko) {
+        ox *= 1.25
+        oy = oy * 0.35 + PLAYER_RADIUS * 0.55
+      }
 
       // Limb animation. Legs lift on alternate phases; arms counter-swing.
       if (part === Part.LegL) oy += legLift(dist, 1) * CELL_WORLD
@@ -147,7 +178,7 @@ export const renderPlayers = (
       if (part === Part.Eye) {
         ox += eyeShift(facing, 0) * CELL_WORLD
         oy += eyeShift(facing, 1) * CELL_WORLD * 0.5
-        cellScaleY *= blinkScale
+        cellScaleY *= ko ? 0.12 : blinkScale // eyes shut while out cold
       }
 
       // Tag burst: every square is an independent object, so scattering them outward and
@@ -174,7 +205,9 @@ export const renderPlayers = (
           : BODY.edge[i] === 1
             ? isIt
               ? IT_RING_COLOR
-              : darken(flash, 0.62)
+              : slowed
+                ? 0x7ccb66 // goo drips
+                : darken(flash, 0.62)
             : flash
     }
   }

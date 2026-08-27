@@ -3,13 +3,16 @@ import {
   ECHO_SAMPLES,
   MAP_COUNT,
   MAP_H,
+  MAX_DEPLOYED,
   MAX_DOORS,
+  MAX_TOOL_SPAWNS,
   MAX_WARDROBES,
   MAP_TILES_X,
   MAP_W,
   MAX_PLAYERS,
   PLAYER_COLORS,
   SPAWNS_PER_MAP,
+  TOOL_SLOTS,
 } from '../constants.ts'
 import { MAPS, tileCenterX, tileCenterY, type GameMap } from '../maps/index.ts'
 import { createSpatialHash, MAX_BODIES, type SpatialHash } from '../math/spatial-hash.ts'
@@ -55,6 +58,31 @@ export interface World {
   wardrobeCooldownUntil: Int32Array
   /** Per (player, wardrobe): 1 when the player holds this wardrobe's key. */
   keys: Uint8Array
+  /** Floor keys, one per wardrobe: world position and whether someone has claimed it.
+   * Spawned at seeded-random open tiles each round (spawnKeys); slots beyond the map's
+   * wardrobe count stay marked taken so nothing renders or grabs them. */
+  keyX: Float32Array
+  keyY: Float32Array
+  keyTaken: Uint8Array
+
+  // ── Tools ──
+  /** Floor tool pickups: position, type (TOOL_*, 0 = nothing here), claimed flag. */
+  toolX: Float32Array
+  toolY: Float32Array
+  toolType: Uint8Array
+  toolTaken: Uint8Array
+  /** Per (player, inventory slot): the TOOL_* type held, 0 = empty. */
+  held: Uint8Array
+  /** Pending use requests, consumed by the next tick: 0 none, 1 slot A, 2 slot B. */
+  useQueued: Uint8Array
+  /** Tick until which each player is goo-slowed. */
+  slowedUntilTick: Int32Array
+  /** Deployed tools, fixed pool: type (0 = free), owner, position, expiry tick. */
+  depType: Uint8Array
+  depOwner: Uint8Array
+  depX: Float32Array
+  depY: Float32Array
+  depUntilTick: Int32Array
 
   // ── Players (length MAX_PLAYERS) ──
   active: Uint8Array
@@ -77,6 +105,12 @@ export interface World {
 
   /** Who is "It", or NO_SLOT during Lobby/Leaderboard. */
   itSlot: Slot
+  /**
+   * Tick the current ghost was crowned. The ghost's trail only admits samples recorded
+   * from this tick on, so a new ghost starts with NO trail and grows one over the next
+   * 3 seconds — the metamorphosis lull plus this ramp is the humans' head start.
+   */
+  itSinceTick: number
   /**
    * No-tag-backs: the player who just handed "It" over, untouchable BY the new It for the
    * immunity window. Solid trails used to keep the pair physically separated after a tag;
@@ -157,6 +191,22 @@ export const createWorld = (seed: number, mapIndex = 0): World => {
     hiddenSinceTick: new Int32Array(MAX_PLAYERS),
     wardrobeCooldownUntil: new Int32Array(MAX_PLAYERS * MAX_WARDROBES),
     keys: new Uint8Array(MAX_PLAYERS * MAX_WARDROBES),
+    keyX: new Float32Array(MAX_WARDROBES),
+    keyY: new Float32Array(MAX_WARDROBES),
+    keyTaken: new Uint8Array(MAX_WARDROBES).fill(1),
+
+    toolX: new Float32Array(MAX_TOOL_SPAWNS),
+    toolY: new Float32Array(MAX_TOOL_SPAWNS),
+    toolType: new Uint8Array(MAX_TOOL_SPAWNS),
+    toolTaken: new Uint8Array(MAX_TOOL_SPAWNS).fill(1),
+    held: new Uint8Array(MAX_PLAYERS * TOOL_SLOTS),
+    useQueued: new Uint8Array(MAX_PLAYERS),
+    slowedUntilTick: new Int32Array(MAX_PLAYERS),
+    depType: new Uint8Array(MAX_DEPLOYED),
+    depOwner: new Uint8Array(MAX_DEPLOYED),
+    depX: new Float32Array(MAX_DEPLOYED),
+    depY: new Float32Array(MAX_DEPLOYED),
+    depUntilTick: new Int32Array(MAX_DEPLOYED),
 
     active: new Uint8Array(MAX_PLAYERS),
     isBot: new Uint8Array(MAX_PLAYERS),
@@ -172,6 +222,7 @@ export const createWorld = (seed: number, mapIndex = 0): World => {
     lastInput: new Uint8Array(MAX_PLAYERS),
 
     itSlot: NO_SLOT,
+    itSinceTick: 0,
     tagBackSlot: NO_SLOT,
     tagBackUntilTick: 0,
     turningSlot: NO_SLOT,
@@ -250,6 +301,12 @@ export const addPlayer = (w: World, isBot: boolean): Slot => {
     w.immuneUntilTick[s] = 0
     w.tagCooldownUntilTick[s] = 0
     w.lastInput[s] = IDLE_INPUT
+    // A reused slot must not inherit a departed player's claimed keys, tools or cooldowns.
+    w.keys.fill(0, s * MAX_WARDROBES, (s + 1) * MAX_WARDROBES)
+    w.wardrobeCooldownUntil.fill(0, s * MAX_WARDROBES, (s + 1) * MAX_WARDROBES)
+    w.held.fill(0, s * TOOL_SLOTS, (s + 1) * TOOL_SLOTS)
+    w.useQueued[s] = 0
+    w.slowedUntilTick[s] = 0
     w.playerCount++
 
     // A mid-round joiner starts wherever there is the most room, and their history is
@@ -270,6 +327,7 @@ export const removePlayer = (w: World, slot: Slot): void => {
   w.playerCount--
   // If "It" leaves, hand it to whoever has spent the least time as It — the fairest
   // choice available, and deterministic so client and server agree.
+  const itBefore = w.itSlot
   if (w.itSlot === slot) w.itSlot = leastItTimeSlot(w, slot)
   // If the metamorphosing player leaves, the transformation dies with them and the role
   // passes directly — a 5s lull with no incoming ghost would otherwise strand the round.
@@ -277,6 +335,8 @@ export const removePlayer = (w: World, slot: Slot): void => {
     w.turningSlot = NO_SLOT
     if (w.itSlot === NO_SLOT) w.itSlot = leastItTimeSlot(w, slot)
   }
+  // A handover crowns a new ghost: their trail starts empty from this tick (see itSinceTick).
+  if (w.itSlot !== itBefore && w.itSlot !== NO_SLOT) w.itSinceTick = w.tick
 }
 
 /** Lowest unused colour slot, falling back to the player slot itself. */

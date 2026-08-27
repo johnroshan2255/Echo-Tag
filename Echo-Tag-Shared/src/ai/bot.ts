@@ -10,8 +10,8 @@ import type { World } from '../sim/world.ts'
  * exists, and so both use the *same* placeholder rather than two drifting copies. It knows
  * nothing about echoes and does not pathfind; it gives each slot a spawn-tile waypoint that
  * rotates on a fixed cadence, steers straight at it, and turns when stuck against a wall.
- * That is enough to produce map-wide movement, wall grinding, dense self-crossing trails and
- * regular tags — the load profile that matters — while being trivially deterministic.
+ * That is enough to produce map-wide movement, wall grinding, a dense self-crossing ghost
+ * trail and regular tags — the load profile that matters — while being trivially deterministic.
  *
  * Phase 6 replaces this with `bot.ts` proper: seek/flee against It, echo avoidance via a
  * raycast fan, capped reaction time. The signature is the contract: bots are input bytes.

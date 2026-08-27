@@ -11,5 +11,6 @@ export {
 } from './echo.ts'
 export { encodeInput, inputX, inputY, inputAngle, isIdle, IDLE_INPUT } from './input.ts'
 export { updateDoors } from './door.ts'
-export { updateWardrobes, dealKeys, isHidden } from './wardrobe.ts'
+export { updateWardrobes, spawnKeys, updateKeys, isHidden } from './wardrobe.ts'
+export { spawnTools, updateTools, queueToolUse, isSlowed, trapArmed } from './tools.ts'
 export { updateTrailStuns, isUnconscious } from './stun.ts'

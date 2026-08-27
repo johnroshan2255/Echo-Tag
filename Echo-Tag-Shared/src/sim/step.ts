@@ -9,7 +9,8 @@ import { NO_SLOT, RoundPhase, type Slot, type StepEvents } from '../types.ts'
 import { updateDoors } from './door.ts'
 import { updateTrailStuns } from './stun.ts'
 import { updateTurning } from './tag.ts'
-import { dealKeys, updateWardrobes } from './wardrobe.ts'
+import { spawnKeys, updateKeys, updateWardrobes } from './wardrobe.ts'
+import { spawnTools, updateTools } from './tools.ts'
 import { rebuildEchoBodies, sampleHistory } from './echo.ts'
 import { IDLE_INPUT } from './input.ts'
 import { integratePlayer } from './player.ts'
@@ -70,6 +71,11 @@ export const stepWorld = (w: World, inputs: Uint8Array): StepEvents => {
   // Doors first, from last tick's positions, so a door starts opening the tick you arrive
   // and this tick's collision already sees the new openness.
   updateDoors(w)
+  // Keys before wardrobes: a runner can grab a key and slip inside on the same tick.
+  updateKeys(w)
+  // Tools: pickups, queued uses, and puddle/trap effects — all before integration, so a
+  // fresh slow or KO shapes this very tick's movement.
+  updateTools(w)
   // Then wardrobes: entries and exits resolve before integration, so a player who slips
   // inside this tick does not also move this tick.
   updateWardrobes(w, inputs)
@@ -124,9 +130,16 @@ export const enterPhase = (w: World, phase: RoundPhase): void => {
     w.unconsciousUntilTick.fill(0)
     w.trailOverlap.fill(0)
     spawnAll(w)
-    dealKeys(w)
+    spawnKeys(w)
+    spawnTools(w)
     setIt(w, pickStartingIt(w))
     rebuildEchoBodies(w)
+  }
+
+  if (phase === RoundPhase.Playing) {
+    // The trail clock starts when play does: the opening ghost begins trail-less too,
+    // not standing on a stack of its own countdown samples.
+    w.itSinceTick = w.tick
   }
 
   if (phase === RoundPhase.Leaderboard) {

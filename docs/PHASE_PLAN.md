@@ -16,6 +16,12 @@ opinions — if it isn't checkable, it isn't a gate.
 | 4 | Server authority & multiplayer menu | 2 d | ✅ done (pulled forward; prediction-lite) |
 | 3 | Input (touch joystick) + horror dressing | 1 d | ✅ done |
 | 5.5 | Decay pass + Poki deployability | 0.5 d | ✅ done |
+| 5.7 | Ghost-only trails | 0.25 d | ✅ done (owner decision) |
+| 5.8 | Inside the wardrobe (hider blindness) | 0.25 d | ✅ done |
+| 5.9 | Floor keys: grab, don't deal | 0.25 d | ✅ done (user direction) |
+| 5.10 | Tools: goo jars & snap traps | 0.5 d | ✅ done (user direction) |
+| 5.11 | Room chat (multiplayer only) | 0.25 d | ✅ done (user direction) |
+| 5.12 | Lobby control: host bots, min-2 start, URL rejoin | 0.25 d | ✅ done (user direction) |
 | 4 | Server authority | 2 d | |
 | 5 | Prediction & smoothing | 2 d | |
 | 6 | Bots & matchmaking | 1.5 d | |
@@ -311,6 +317,122 @@ echo trails no longer collide — they are pure information, the breadcrumbs of 
 Retiring solidity exposed a masked design gap (instant tag-backs between the overlapping
 pair at transfer), fixed with a no-tag-backs window and caught by a failing test within
 minutes. [ADR 0012](adr/0012-trails-visual-only.md).
+
+## Phase 5.7 — Ghost-only trails + the metamorphosis on screen ✅  (owner decision)
+
+"Only ghosts need ghost trails": echo bodies are live only for `itSlot`, and only from the
+crowning tick on (`itSinceTick`, `itAgeTicks` in every snapshot) — a new ghost starts with
+no trail and grows one over 3s, so the lull plus the ramp is the humans' guaranteed head
+start. During the metamorphosis the arena holds no hazards at all. The transformation is
+now visible: tremble + accelerating white flicker + convulsing scale on the turning
+player, a violet halo and a tightening bat wreath around them, and the threat arrow
+telegraphs them through the lull. Becoming the ghost is felt first-person too: the
+victim's own screen shakes and tears with glitch bars (ramping to a crowning slam) —
+strictly per-viewport, so in multiplayer only the victim's monitor judders. Landing this surfaced that 7 of 9 mechanics invariants
+were failing on stale scaffolding (tag-back shield in the test helper, a trail-crossing
+walk slower than the ring's 3s lifetime) — repaired, plus new invariants: humans leave no
+live trail, crowning cannot faint the new ghost, and the trail fills over exactly the echo
+delay. Also fixed: the multiplayer mirror never fired its tag event (it watched `itSlot`,
+which passes through NO_SLOT for the whole lull), so tag stings and scatter bursts were
+silent in netplay. [ADR 0013](adr/0013-ghost-only-trails.md).
+
+## Phase 5.8 — Inside the wardrobe ✅
+
+Hiding always worked mechanically (invisible, untaggable), but the hider's own screen
+barely changed: the fog only shrank, so they watched the ghost stroll past the cabinet —
+breaking ADR 0008's "blind" contract — and the threat arrow kept tracking It, telling
+them exactly when it was safe to step out. Now hiding LOOKS like hiding: the view snaps
+to wardrobe darkness — black screen, one thin swaying slit of warm light between the
+doors, its flicker strictly time-based so it can never report what is outside — the
+threat arrow is suppressed, and as the 10s auto-eviction nears the slit creaks wider and
+brighter: the door is opening, get ready to run. Audio was already honest (muffled, with
+a deliberately information-free panicked heartbeat). Screen-space, one extra draw call
+while hidden, allocation-free.
+
+Multiplayer-proofed alongside: the mirror never carried the unconscious flag (a KO'd
+player rubber-banded under prediction and looked untouched), fixed by mirroring it like
+immunity and gating prediction on it — and a collapsed pose (flattened pile, eyes shut)
+now makes a faint readable on every client in both modes. The protocol probe grew
+scenario coverage on the real server via TEST_HOOKS-gated teleport/setIt seams: wardrobe
+hide/exit mirrored across clients, tag → hazard-free lull → crowning, and trail growth
+asserted against a client-identical mirror world.
+
+## Phase 5.9 — Floor keys: grab, don't deal ✅  (user direction)
+
+Wardrobe keys are no longer dealt at round start (supersedes ADR 0008 on this point).
+One key per wardrobe spawns at a seeded-random open tile — clear of every spawn point and
+of the cabinet it opens — and lies there as a bobbing golden glyph until a live human
+runner walks over it: first claimant keeps it for the round. The ghost, the turning, the
+hidden, the unconscious, and bots never pick up keys (bots never hide, so they never deny
+a human one). Keyhole markers now appear live as keys are grabbed. On the wire: spawn
+positions ride the welcome/round messages, a keyTaken bitmask rides the snapshot header,
+and each player entry carries their key mask (snapshot is still ~110 bytes max). A reused
+slot no longer inherits a departed player's keys. Probe scenario updated: grab the key on
+the real server, watch it vanish for everyone, then hide with it. Single occupancy is now
+enforced in the sim too — an occupied cabinet refuses everyone, key or no key, so no
+future key rule can ever double-book a wardrobe (regression-tested by forcing two holders
+of the same key).
+
+## Phase 5.10 — Tools: goo jars & snap traps ✅  (user direction)
+
+The mischief layer. Six tool pickups spawn on the floor like keys (seeded-random, clear
+of spawns): GOO JARS shatter into a puddle that slows everyone else who crosses it to
+45% with a sticky linger, and SNAP TRAPS arm after 1.2s then knock the first other body
+that crosses them out cold (the standard 3s faint) — both work on the ghost too, and
+never on their owner. Runners carry up to two, shown in an engine-owned DOM tool belt
+top-right (tap an icon or press 1/2 to deploy at your feet); "It", the turning, the
+hidden, the unconscious and bots neither grab nor use. Use requests ride a new 'u'
+message and are queued into world state, so both sides of the wire resolve them in the
+same deterministic tick. Snapshot grows a toolTaken mask, a deployed-pool section and a
+per-player held byte (+ a goo-slowed flag bit driving the green-dripping edge tint);
+spawn triples ride the round-setup messages. Slowed players are slower in prediction too.
+Seven new sim invariants plus a probe scenario on the real server (grab → deploy → feed
+a bot to it → effect visible on the wire). Landing this also flushed out a latent test
+hazard: scaffold `setIt` calls arming the no-tag-back shield could stall tag-dependent
+tests when RNG draws shift — every such scaffold now clears the shield, and the one
+unbounded tag loop in the suite is bounded so a missed tag fails loud instead of hanging.
+Icons are pixel-art bitmaps (`render/pixelIcons.ts`), never fonts or emoji: one authored
+bitmap per glyph (key, keyhole, jar, trap) painted as chunky rects in the arena and as
+crisp integer-scaled pixels on the tool-belt canvases — identical on every platform.
+
+## Phase 5.11 — Room chat ✅  (user direction)
+
+Multiplayer only, by construction: chat exists only where there is a room to relay it —
+local bot rounds have no chat surface at all. A pixel speech-bubble button (with a gold
+unread pixel) sits top-left; it slides a translucent panel in from the left (the Genshin
+pattern in this game's register: hard corners, chalk borders, monospace, 0.8 opacity so
+the arena stays visible). Players are identified by their avatar colour — swatch + colour
+name, "(YOU)" on your own lines. The server is a pure relay ('c' message): sanitised
+(control chars stripped, trimmed, 120 chars), rate-limited (600ms), broadcast, NEVER
+stored — messages live only in each client's DOM list (last 60) and die with the page.
+All text renders via textContent, so nobody can inject markup. Typing never steers: the
+keyboard module and tool hotkeys ignore keydowns targeted at text fields (releases still
+land, so a held key can't stick). Mobile-responsive: 86vw panel, 16px input (no iOS zoom),
+safe-area insets, pointerdown isolation from the joystick. Probe asserts the relay, the
+trim and the rate limit on the real server; verified visually on desktop and phone.
+
+## Phase 5.12 — Lobby control ✅  (user direction)
+
+Private rooms are the host's to shape. Bots are no longer forced: a −/+ stepper in the
+lobby sets how many join at round start (0 up to 12 − humans; four friends can play a
+clean 4-player round with one ghost, or pad to a full twelve), reconciled each round so
+the count can also go DOWN between rounds. Starting needs at least two humans — the
+button disables with a "share the code" hint until someone arrives, and the server
+enforces the same rule ('Go' from a lone host is refused). Public quick-match keeps its
+auto-fill-to-8 behaviour untouched. The room code now lives in the URL (?room=CODE), so
+a refresh drops the player straight back into their room mid-round (audio resumes on the
+first press — gesture rules); a dead or full room clears the param and explains itself
+("That room is full — 12 players max"), with the 12-cap enforced server-side as before.
+The lobby shows N / 12 PLAYERS, and chat (with its pixel bubble) is live from the lobby
+on. Also fixed: a startup race where the lobby overlay could miss the initial state sync
+(now replayed on subscribe), and the bots stepper's `hidden` attribute being defeated by
+its own `display:flex` rule. Post-landing fixes: an empty room now survives 30s instead
+of disposing instantly (the last human refreshing was destroying the very room their
+?room URL was rejoining — the room disposes manually via a grace deadline in the tick);
+floor pickups keep PICKUP_SPACING from each other (keys and tools could spawn overlapping,
+so using a tool while standing on the pile silently re-grabbed the neighbour); and chat
+paces its sends client-side so a quick second line is delayed rather than silently eaten
+by the server's rate limit.
 
 ## Phase 5.5 — Decay + Poki deployability ✅  (user direction)
 

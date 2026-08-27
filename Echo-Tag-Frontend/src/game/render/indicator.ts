@@ -1,4 +1,4 @@
-import { IT_RING_COLOR, MAX_PLAYERS, PLAYER_COLORS, type World } from '@echo-tag/shared'
+import { IT_RING_COLOR, MAX_PLAYERS, NO_SLOT, PLAYER_COLORS, type World } from '@echo-tag/shared'
 import { Container, Graphics } from 'pixi.js'
 import { inView, type Camera } from '../engine/camera.ts'
 
@@ -50,8 +50,15 @@ export const renderIndicator = (
 ): void => {
   const arrow = layer.arrow
   const it = world.itSlot
+  const turning = world.turningSlot
 
-  if (it < 0 || world.active[localSlot] === 0) {
+  if ((it < 0 && turning < 0) || world.active[localSlot] === 0) {
+    arrow.visible = false
+    return
+  }
+  // Inside a wardrobe you are blind — an arrow that still tracked the ghost would tell
+  // you exactly when it is safe to step out, which is the one thing hiding must not know.
+  if (world.hiddenIn[localSlot] !== NO_SLOT) {
     arrow.visible = false
     return
   }
@@ -59,7 +66,11 @@ export const renderIndicator = (
   // Choose the target this arrow exists to reveal.
   let target = -1
   let tint = IT_RING_COLOR
-  if (it !== localSlot) {
+  if (it < 0) {
+    // The lull: nobody hunts, but the next ghost is forming — the arrow telegraphs where,
+    // so the head start is spent running the right way, not guessing.
+    if (turning !== localSlot) target = turning
+  } else if (it !== localSlot) {
     target = it
   } else {
     // You are It: nearest taggable player.

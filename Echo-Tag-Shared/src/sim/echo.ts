@@ -39,21 +39,29 @@ export const sampleHistory = (w: World): void => {
 /**
  * Rewrites the derived body arrays and the broadphase from the current rings.
  * Must run after `sampleHistory` and before collision.
+ *
+ * Only the ghost ("It") gets live bodies: humans leave no active trail. History is still
+ * sampled for everyone, but the ghost's trail admits only samples recorded SINCE it was
+ * crowned (`itSinceTick`): a new ghost starts with no trail and grows one over 3 seconds,
+ * and while someone is turning (`itSlot === NO_SLOT`) the arena holds no hazards at all
+ * — the lull plus the ramp is the humans' head start.
  */
 export const rebuildEchoBodies = (w: World): void => {
   const head = w.histHead
   const filled = w.histFilled
+  // One sample per tick, so sample age and tick age share units.
+  const ticksAsIt = w.tick - w.itSinceTick
 
   for (let s = 0; s < MAX_PLAYERS; s++) {
     const bodyBase = s * ECHO_BODIES_PER_PLAYER
     const histBase = s * ECHO_SAMPLES
-    const live = w.active[s] === 1
+    const live = w.active[s] === 1 && s === w.itSlot
 
     for (let k = 0; k < ECHO_BODIES_PER_PLAYER; k++) {
       const id = bodyBase + k
       // Age in samples: k=0 is one stride behind the write head.
       const age = (k + 1) * ECHO_STRIDE
-      if (!live || age > filled) {
+      if (!live || age > filled || age > ticksAsIt) {
         w.bodyLive[id] = 0
         continue
       }

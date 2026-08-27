@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  ECHO_BODIES_PER_PLAYER,
   ECHO_DELAY_MS,
   MAP_TILE,
   MAX_PLAYERS,
@@ -44,6 +45,7 @@ const park = (w: World, slot: number, tx: number, ty: number): void => {
 /** Drives It into a stationary victim; returns after the touch registers. */
 const tagHappens = (w: World, inputs: Uint8Array, it: number, victim: number): void => {
   setIt(w, it)
+  w.tagBackUntilTick = 0 // scaffold setIt is not a real handover: no tag-back shield
   park(w, it, 4, 6.5)
   park(w, victim, 6, 6.5)
   inputs[it] = EAST
@@ -103,44 +105,47 @@ describe('transformation delay', () => {
     assert.ok(w.itTimeMs[1]! - itBefore <= TICK_MS * 3, 'the mandatory lull must not be charged as It-time')
   })
 
-  it('trail contact cannot interrupt a metamorphosis', () => {
+  it('the lull is hazard-free: every trail vanishes while someone turns', () => {
     const w = playing(2)
     const inputs = new Uint8Array(MAX_PLAYERS)
-    // Lay a trail across the future turning spot, then tag the victim standing in it.
-    park(w, 1, 4, 6.5)
-    inputs[1] = EAST
-    for (let t = 0; t < 50; t++) stepWorld(w, inputs) // slot 1 lays trail eastward
-    inputs[1] = 0
+    // The ghost lays its trail driving into the victim; the touch frees it and empties
+    // `itSlot` — and with it, the arena: only the ghost has a live trail, and there is
+    // no ghost while the metamorphosis runs. Stumbling back through where the trail
+    // was must never KO.
     tagHappens(w, inputs, 0, 1)
-    // Stumble straight through whatever old trail is around: never KO'd.
     inputs[1] = WEST
     for (let t = 0; t < TRANSFORM_TICKS - 2; t++) {
       stepWorld(w, inputs)
-      assert.ok(w.tick >= w.unconsciousUntilTick[1]!, 'turning player was knocked unconscious')
       assert.equal(w.turningSlot, 1)
+      assert.ok(w.tick >= w.unconsciousUntilTick[1]!, 'turning player was knocked unconscious')
+      for (let id = 0; id < w.bodyLive.length; id++) {
+        assert.equal(w.bodyLive[id], 0, `echo body ${id} live during the lull`)
+      }
     }
   })
 })
 
 describe('unconscious on trail contact', () => {
-  /** Slot 0 lays a north-south... actually east trail; slot 1 crosses it from the south. */
+  /** Slot 0 — the ghost, since only the ghost's trail is live — lays an east trail;
+   * slot 1 crosses it from the south. */
   const crossTrail = (w: World, inputs: Uint8Array): void => {
+    setIt(w, 0)
     park(w, 0, 4, 6.5)
     inputs[0] = EAST
     for (let t = 0; t < Math.ceil(ECHO_DELAY_MS / TICK_MS); t++) stepWorld(w, inputs)
     inputs[0] = 0
-    // Slot 1 approaches the middle of that trail from below, walking north into it.
-    park(w, 1, 7, 10)
+    // Slot 1 approaches the middle of that trail from just below, walking north into it
+    // (close enough that the segment has not aged out of the ring by the time they arrive).
+    park(w, 1, 7, 8)
     inputs[1] = encodeInput(0, -1)
     for (let t = 0; t < 80 && w.tick >= w.unconsciousUntilTick[1]!; t++) stepWorld(w, inputs)
     inputs[1] = 0
   }
 
-  it('faints a player who walks into another trail, and recovers them automatically', () => {
+  it("faints a player who walks into the ghost's trail, and recovers them automatically", () => {
     const w = playing(3)
     const inputs = new Uint8Array(MAX_PLAYERS)
-    park(w, 2, 20, 11)
-    setIt(w, 2) // keep It far away so no tag interferes
+    park(w, 2, 20, 11) // bystander, out of the way
     crossTrail(w, inputs)
 
     assert.ok(w.tick < w.unconsciousUntilTick[1]!, 'crossing a trail should faint the walker')
@@ -163,15 +168,15 @@ describe('unconscious on trail contact', () => {
   it('is an automatic catch: the ghost tags a fainted player by reaching them', () => {
     const w = playing(3)
     const inputs = new Uint8Array(MAX_PLAYERS)
-    park(w, 2, 20, 11)
-    setIt(w, 2)
-    crossTrail(w, inputs)
+    park(w, 2, 20, 11) // bystander, out of the way
+    crossTrail(w, inputs) // ghost 0 lays the trail; slot 1 faints on it
     assert.ok(w.tick < w.unconsciousUntilTick[1]!)
 
-    // Ghost walks to the body.
-    w.x[2] = w.x[1]! - MAP_TILE * 2
-    w.y[2] = w.y[1]!
-    inputs[2] = EAST
+    // Ghost approaches the body from the south — a path clear of its own old trail,
+    // which still replays along the row it was laid on.
+    w.x[0] = w.x[1]!
+    w.y[0] = w.y[1]! + MAP_TILE * 2
+    inputs[0] = encodeInput(0, -1)
     let caught = false
     for (let t = 0; t < 60 && !caught; t++) caught = stepWorld(w, inputs).tagCount > 0
     assert.ok(caught, 'an unconscious player must be catchable where they lie')
@@ -181,9 +186,12 @@ describe('unconscious on trail contact', () => {
   it('does not faint a player standing still while a trail sweeps over them', () => {
     const w = playing(2)
     const inputs = new Uint8Array(MAX_PLAYERS)
-    // Slot 0 runs a loop THROUGH slot 1's position; slot 1 never moves.
+    // The ghost runs a loop THROUGH slot 1's position; slot 1 never moves. Slot 1 gets
+    // scaffold immunity so the pass-through cannot tag — only the trail question remains.
     park(w, 1, 8, 6.5)
     park(w, 0, 4, 6.5)
+    setIt(w, 0)
+    w.immuneUntilTick[1] = 1 << 30
     inputs[0] = EAST
     for (let t = 0; t < 100; t++) {
       stepWorld(w, inputs)
@@ -191,8 +199,9 @@ describe('unconscious on trail contact', () => {
     }
   })
 
-  it('own trail counts: circling back across your own path faints you', () => {
+  it("own trail counts: the ghost circling back across its own path faints it", () => {
     const w = playing(1)
+    assert.equal(w.itSlot, 0, 'a lone player is always the ghost')
     const inputs = new Uint8Array(MAX_PLAYERS)
     park(w, 0, 4, 6.5)
     // Run a tight box so the path crosses its own year-old (in echo terms) segment.
@@ -219,5 +228,64 @@ describe('unconscious on trail contact', () => {
         assert.ok(w.tick >= w.unconsciousUntilTick[s]!, `slot ${s} chain-stunned by own fresh trail at t=${t}`)
       }
     }
+  })
+
+  it('humans leave no live trail — only the ghost has echo bodies', () => {
+    const w = playing(3)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    park(w, 2, 20, 11)
+    setIt(w, 2) // ghost parked far away; slots 0 and 1 are humans
+    // Slot 0 lays a path exactly like a ghost would...
+    park(w, 0, 4, 6.5)
+    inputs[0] = EAST
+    for (let t = 0; t < Math.ceil(ECHO_DELAY_MS / TICK_MS); t++) stepWorld(w, inputs)
+    inputs[0] = 0
+    // ...but none of their bodies is ever live.
+    for (let id = 0; id < w.bodyLive.length; id++) {
+      if (w.bodyLive[id] === 1) assert.equal(w.bodyOwner[id], 2, `body ${id} live for a non-ghost`)
+    }
+    // And crossing that path faints nobody.
+    park(w, 1, 7, 10)
+    inputs[1] = encodeInput(0, -1)
+    for (let t = 0; t < 80; t++) {
+      stepWorld(w, inputs)
+      assert.ok(w.tick >= w.unconsciousUntilTick[1]!, `fainted on a human's trail at t=${t}`)
+    }
+  })
+
+  it('crowning does not faint the new ghost — their trail starts empty', () => {
+    const w = playing(2)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    tagHappens(w, inputs, 0, 1)
+    park(w, 0, 20, 11)
+    // Stumble east through the whole metamorphosis, so the moment slot 1 is crowned they
+    // are moving fast right where their past 3 seconds happened — none of which may be
+    // a hazard, because the ghost trail only begins at the crowning.
+    inputs[1] = EAST
+    for (let t = 0; t < TRANSFORM_TICKS + 1; t++) stepWorld(w, inputs)
+    assert.equal(w.itSlot, 1, 'the turned player should now be the ghost')
+    for (let t = 0; t < 20; t++) {
+      stepWorld(w, inputs)
+      assert.ok(w.tick >= w.unconsciousUntilTick[1]!, `new ghost fainted at crowning at t=${t}`)
+    }
+  })
+
+  it("the new ghost's trail starts empty and fills over exactly the echo delay", () => {
+    const w = playing(2)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    tagHappens(w, inputs, 0, 1)
+    park(w, 0, 20, 11)
+    inputs[1] = EAST // plenty of pre-crowning movement that must never become a hazard
+    for (let t = 0; t < TRANSFORM_TICKS + 1; t++) stepWorld(w, inputs)
+    assert.equal(w.itSlot, 1)
+
+    let live = 0
+    for (const b of w.bodyLive) live += b
+    assert.equal(live, 0, 'the new ghost must be crowned with no trail — that is the head start')
+
+    for (let t = 0; t < Math.ceil(ECHO_DELAY_MS / TICK_MS); t++) stepWorld(w, inputs)
+    live = 0
+    for (const b of w.bodyLive) live += b
+    assert.equal(live, ECHO_BODIES_PER_PLAYER, 'the trail should be full 3s after crowning')
   })
 })

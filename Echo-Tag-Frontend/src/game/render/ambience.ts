@@ -15,6 +15,9 @@ import {
   SPIDER_COUNT,
   SPIDER_SIZE,
   SPIDER_TINT,
+  WREATH_COUNT,
+  WREATH_SIZE,
+  WREATH_TINT,
 } from '../theme.ts'
 
 /**
@@ -45,6 +48,8 @@ export interface AmbienceLayer {
   spY: Float32Array
   spHeading: Float32Array
   spPhase: Float32Array
+  // Transformation wreath: bats whirling around the turning player (gameplay telegraph).
+  wreath: Particle[]
   // Bats: one flock at a time.
   bats: Particle[]
   batOriginX: number
@@ -59,7 +64,10 @@ export interface AmbienceLayer {
 
 export const createAmbienceLayer = (texture: Texture): AmbienceLayer => {
   const container = new ParticleContainer({
-    dynamicProperties: { position: true, color: true, vertex: false, rotation: false, uvs: false },
+    // `vertex: true` because scale lives in the vertex attribute (see squareBody.ts): the
+    // bats' wingbeat and the wreath's flutter are per-frame scaleY writes, which a static
+    // vertex buffer would silently ignore. ~160 particles, so the upload is noise.
+    dynamicProperties: { position: true, color: true, vertex: true, rotation: false, uvs: false },
   })
 
   const make = (size: number, tint: number): Particle => {
@@ -84,8 +92,11 @@ export const createAmbienceLayer = (texture: Texture): AmbienceLayer => {
   for (let i = 0; i < SPIDER_COUNT; i++) spiders.push(make(SPIDER_SIZE, SPIDER_TINT))
   const bats: Particle[] = []
   for (let i = 0; i < BAT_COUNT; i++) bats.push(make(BAT_SIZE, BAT_TINT))
+  const wreath: Particle[] = []
+  for (let i = 0; i < WREATH_COUNT; i++) wreath.push(make(WREATH_SIZE, WREATH_TINT))
 
   return {
+    wreath,
     container,
     particles,
     baseX: new Float32Array(FIREFLY_COUNT),
@@ -192,5 +203,46 @@ export const renderAmbience = (layer: AmbienceLayer, nowMs: number, camX: number
       layer.nextFlockMs = nowMs + (BAT_LULL_MIN + layer.rngState() * (BAT_LULL_MAX - BAT_LULL_MIN)) * 1000
       for (const p of layer.bats) p.alpha = 0
     }
+  }
+}
+
+/**
+ * The metamorphosis wreath: bats whirling around the turning player, the ring tightening
+ * as the ghost forms (`progress` 0 → 1). Unlike everything else in this layer this IS
+ * gameplay information — the sim telegraphs `turningSlot` exactly so this can exist.
+ * Same particles, same container, zero extra draw calls.
+ */
+export const renderWreath = (
+  layer: AmbienceLayer,
+  visible: boolean,
+  wx: number,
+  wy: number,
+  progress: number,
+  nowMs: number,
+): void => {
+  if (!visible) {
+    if (layer.wreath[0]!.alpha !== 0) {
+      for (const p of layer.wreath) {
+        p.alpha = 0
+        p.x = -9999
+        p.y = -9999
+      }
+    }
+    return
+  }
+
+  const t = nowMs * 0.001
+  // The whirl spins up as the transformation completes: wider and lazy at the touch,
+  // tight and frantic at the crowning.
+  const spin = 2.2 + progress * 3.4
+  const radius = 52 - 26 * progress
+  for (let i = 0; i < WREATH_COUNT; i++) {
+    const p = layer.wreath[i]!
+    const a = t * (spin + (i % 3) * 0.4) + (i * Math.PI * 2) / WREATH_COUNT
+    const r = radius + Math.sin(t * 3.1 + i * 2.3) * 7
+    p.x = wx + Math.cos(a) * r
+    p.y = wy + Math.sin(a) * r * 0.72 - 8 + Math.sin(t * 5 + i) * 4 // elliptical orbit, hovering
+    p.scaleY = ((WREATH_SIZE / 8) * (0.45 + Math.abs(Math.sin(t * 13 + i * 1.7)))) / 1.2 // wingbeat
+    p.alpha = 0.7 + 0.25 * Math.sin(t * 7 + i)
   }
 }

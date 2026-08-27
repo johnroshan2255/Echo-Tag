@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  KEY_SPAWN_CLEAR,
   MAX_PLAYERS,
   MAX_WARDROBES,
   TICK_MS,
@@ -64,15 +65,81 @@ const pressIn = (w: World, inputs: Uint8Array, slot = 0): void => {
 }
 
 describe('wardrobes', () => {
-  it('deals every player keys to some wardrobes, never all', () => {
+  it('spawns one floor key per wardrobe, clear of cabinets, with nobody holding any', () => {
     const w = playing(8)
     const count = w.map.wardrobes.length / 4
     for (let s = 0; s < 8; s++) {
-      let held = 0
-      for (let i = 0; i < count; i++) held += w.keys[s * MAX_WARDROBES + i]!
-      assert.ok(held >= 1, `player ${s} holds no keys`)
-      assert.ok(held < count, `player ${s} holds every key — hiding would be safe everywhere`)
+      for (let i = 0; i < count; i++) {
+        assert.equal(w.keys[s * MAX_WARDROBES + i], 0, `player ${s} was dealt a key — keys must be earned`)
+      }
     }
+    for (let i = 0; i < count; i++) {
+      assert.equal(w.keyTaken[i], 0, `key ${i} should start on the floor`)
+      for (let c = 0; c < count; c++) {
+        const d = Math.hypot(wardrobeCenterX(w.map, c) - w.keyX[i]!, wardrobeCenterY(w.map, c) - w.keyY[i]!)
+        assert.ok(d >= KEY_SPAWN_CLEAR, `key ${i} spawned ${d.toFixed(0)}wu from wardrobe ${c}`)
+      }
+    }
+    for (let i = count; i < MAX_WARDROBES; i++) {
+      assert.equal(w.keyTaken[i], 1, `phantom key ${i} beyond the map's count is grabbable`)
+    }
+  })
+
+  it('walking over a floor key claims it — first claimant keeps it, ghost excluded', () => {
+    const w = playing(3)
+    setIt(w, 2)
+    parkAway(w, 2)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    // Two runners stand on the same key; the lower slot wins, deterministically.
+    w.x[0] = w.keyX[0]!
+    w.y[0] = w.keyY[0]!
+    w.x[1] = w.keyX[0]! + 10
+    w.y[1] = w.keyY[0]!
+    w.vx[0] = w.vy[0] = w.vx[1] = w.vy[1] = 0
+    stepWorld(w, inputs)
+    assert.equal(w.keys[0 * MAX_WARDROBES + 0], 1, 'the first runner should hold key 0')
+    assert.equal(w.keyTaken[0], 1, 'the key should leave the floor')
+    assert.equal(w.keys[1 * MAX_WARDROBES + 0], 0, 'the key is gone for everyone else')
+  })
+
+  it('holds one body per wardrobe: an occupied cabinet refuses a second key holder', () => {
+    const w = playing(3)
+    setIt(w, 2)
+    parkAway(w, 2)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    // Force the impossible-by-floor-keys case: BOTH runners hold the same key.
+    stage(w, 0)
+    pressIn(w, inputs)
+    assert.equal(w.hiddenIn[0], W, 'first key holder should be inside')
+
+    stage(w, 1)
+    inputs[1] = inward(w)
+    for (let t = 0; t < 10; t++) stepWorld(w, inputs)
+    assert.equal(w.hiddenIn[1], NO_SLOT, 'a second body entered an occupied wardrobe')
+    inputs[1] = 0
+
+    // Once the first steps out, the second may enter (their own cooldown is clear).
+    inputs[0] = inward(w) // any input exits after the door-shut delay
+    for (let t = 0; t < 20; t++) stepWorld(w, inputs)
+    assert.equal(w.hiddenIn[0], NO_SLOT, 'first hider should have stepped out')
+    inputs[0] = 0
+    parkAway(w, 0)
+    stage(w, 1)
+    pressIn(w, inputs, 1)
+    assert.equal(w.hiddenIn[1], W, 'the vacated wardrobe should accept the next key holder')
+  })
+
+  it('the ghost cannot pick up keys — predators do not hide', () => {
+    const w = playing(2)
+    setIt(w, 0)
+    parkAway(w, 1)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    w.x[0] = w.keyX[0]!
+    w.y[0] = w.keyY[0]!
+    w.vx[0] = w.vy[0] = 0
+    for (let t = 0; t < 5; t++) stepWorld(w, inputs)
+    assert.equal(w.keyTaken[0], 0, 'the ghost claimed a key')
+    assert.equal(w.keys[0 * MAX_WARDROBES + 0], 0)
   })
 
   it('lets a keyed runner hide, and hides them from the tagger', () => {
@@ -119,6 +186,7 @@ describe('wardrobes', () => {
   it('exits on movement input, with no exit immunity, onto the exit tile', () => {
     const w = playing(2)
     setIt(w, 1)
+    w.tagBackUntilTick = 0 // scaffold setIt is not a real handover: no tag-back shield
     parkAway(w, 1)
     stage(w, 0)
     const inputs = new Uint8Array(MAX_PLAYERS)

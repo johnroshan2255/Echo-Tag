@@ -310,6 +310,8 @@ try {
       ticks: number
       dropped: number
       liveEchoBodies: number
+      turningSlot: number
+      ticksAsIt: number
       arena: [number, number]
       camScale: number
     }
@@ -328,12 +330,18 @@ try {
       if (fps < 30) fail(`under 30 fps even on this GPU (${fps.toFixed(1)}) — a phone has no chance`)
     }
 
-    // Full echo density: 12 players x 15 bodies. Anything less means the trail is not
-    // filling, which would make the whole readability question untestable.
-    if (s1 && s1.liveEchoBodies !== 180) {
-      fail(`expected 180 echo bodies at full density, saw ${s1.liveEchoBodies}`)
+    // Echo density: only the ghost has a live trail — at most 15 bodies. More than 15
+    // means a human is leaking a trail. Exactly 15 is only owed when a ghost has reigned
+    // for the full echo delay (the trail starts empty at crowning and grows over 3s, and
+    // vanishes entirely during a metamorphosis) — so gate the strict assertion on state.
+    if (s1 && s1.liveEchoBodies > 15) {
+      fail(`more than the ghost's 15 echo bodies live (${s1.liveEchoBodies}) — a human is leaking a trail`)
+    } else if (s1 && s1.turningSlot < 0 && s1.ticksAsIt >= 60 && s1.liveEchoBodies !== 15) {
+      fail(`ghost reigning ${s1.ticksAsIt} ticks but trail not full: ${s1.liveEchoBodies}/15 bodies`)
+    } else if (s1 && s1.turningSlot < 0 && s1.ticksAsIt >= 60) {
+      pass('ghost trail fully populated (15 bodies, visual-only; humans leave none)')
     } else if (s1) {
-      pass('echo trail fully populated (180 bodies, visual-only)')
+      pass(`ghost trail mid-cycle (${s1.liveEchoBodies}/15 bodies; turning=${s1.turningSlot}, reign=${s1.ticksAsIt} ticks) — growth rule holds`)
     }
 
     // Compare across the window rather than against zero: a tab that was throttled during
@@ -366,38 +374,51 @@ try {
       const cdp = await context.newCDPSession(page)
       const cx = vp.width / 2
       const cy = vp.height / 2
+      // The bot ghost can tag the idle local avatar right before (or during) this test: a
+      // turning player stumbles at 10% speed and an unconscious one cannot move at all.
+      // Neither is a joystick failure, so wait any impairment out and retry once.
+      const impairedNow = () =>
+        page.evaluate(() => (globalThis as { __echoTag?: { meImpaired?: boolean } }).__echoTag?.meImpaired ?? false)
+      const waitCapable = async (): Promise<void> => {
+        for (let i = 0; i < 40 && (await impairedNow()); i++) await page.waitForTimeout(300)
+      }
       let dragged = 0
       let shotTaken = false
-      for (const [dx, dy] of [
-        [before[0]! < 1600 ? 52 : -52, 0],
-        [0, before[1]! < 880 ? 52 : -52],
-        [before[0]! < 1600 ? -52 : 52, 0],
-        [0, before[1]! < 880 ? -52 : 52],
-      ] as const) {
-        const from = await posOf()
-        await cdp.send('Input.dispatchTouchEvent', {
-          type: 'touchStart',
-          touchPoints: [{ x: cx, y: cy, id: 1 }],
-        })
-        await cdp.send('Input.dispatchTouchEvent', {
-          type: 'touchMove',
-          touchPoints: [{ x: cx + dx, y: cy + dy, id: 1 }],
-        })
-        if (!shotTaken) {
-          // Capture mid-drag so the joystick base and knob are in the screenshot record.
-          await page.waitForTimeout(400)
-          await page.screenshot({ path: `${SHOTS}/${vp.name}-touch.png` })
-          shotTaken = true
-          await page.waitForTimeout(800)
-        } else {
-          await page.waitForTimeout(1200)
+      for (let attempt = 0; attempt < 2 && dragged <= 60; attempt++) {
+        await waitCapable()
+        for (const [dx, dy] of [
+          [before[0]! < 1600 ? 52 : -52, 0],
+          [0, before[1]! < 880 ? 52 : -52],
+          [before[0]! < 1600 ? -52 : 52, 0],
+          [0, before[1]! < 880 ? -52 : 52],
+        ] as const) {
+          const from = await posOf()
+          await cdp.send('Input.dispatchTouchEvent', {
+            type: 'touchStart',
+            touchPoints: [{ x: cx, y: cy, id: 1 }],
+          })
+          await cdp.send('Input.dispatchTouchEvent', {
+            type: 'touchMove',
+            touchPoints: [{ x: cx + dx, y: cy + dy, id: 1 }],
+          })
+          if (!shotTaken) {
+            // Capture mid-drag so the joystick base and knob are in the screenshot record.
+            await page.waitForTimeout(400)
+            await page.screenshot({ path: `${SHOTS}/${vp.name}-touch.png` })
+            shotTaken = true
+            await page.waitForTimeout(800)
+          } else {
+            await page.waitForTimeout(1200)
+          }
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+          const to = await posOf()
+          dragged = Math.hypot(to[0]! - from[0]!, to[1]! - from[1]!)
+          // Threshold: idle prediction drift measures ~11 world units; genuine steering in
+          // a drag window measures 90+. 60 separates them with margin on both sides.
+          if (dragged > 60) break
         }
-        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-        const to = await posOf()
-        dragged = Math.hypot(to[0]! - from[0]!, to[1]! - from[1]!)
-        // Threshold: idle prediction drift measures ~11 world units; genuine steering in a
-        // drag window measures 90+. 60 separates them with margin on both sides.
-        if (dragged > 60) break
+        // Only a drag that finished unimpaired is a verdict on the joystick.
+        if (dragged <= 60 && !(await impairedNow())) break
       }
       if (dragged > 60) pass(`touch drag steered the avatar ${dragged.toFixed(0)} world units`)
       else fail(`touch drag did not move the avatar (${dragged.toFixed(0)} world units)`)

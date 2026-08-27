@@ -56,8 +56,15 @@ export const DOOR_SOLID_BELOW = 0.5
 // the room, and stepping out next to a waiting "It" is exactly the catch it sounds like.
 // "It" never has keys: predators do not hide.
 export const MAX_WARDROBES = 8
-/** Each player is dealt keys to about half the map's wardrobes at round start. */
-export const WARDROBE_KEY_FRACTION = 0.5
+/** Keys are not dealt — one key per wardrobe lies on the floor at a seeded-random open
+ * tile. Walk over it to claim it for the round; first claimant keeps it. */
+export const KEY_GRAB_R = 44
+/** Keys spawn at least this far from spawn points and wardrobes: nobody starts standing
+ * on one, and no key sits beside the cabinet it opens — finding it is the game. */
+export const KEY_SPAWN_CLEAR = 240
+/** And every floor pickup (key or tool) keeps this much distance from every other one,
+ * so grabbing one can never silently grab its neighbour too. */
+export const PICKUP_SPACING = 150
 /** Contact range to slip inside (from the wardrobe centre, moving toward it). */
 export const WARDROBE_ENTER_R = 78
 /** The same wardrobe refuses the same player for this long after use. Others are fine. */
@@ -86,6 +93,30 @@ export const IT_SPEED_MULT = 1.12 // "slightly faster" (GDD §3.2)
 export const ACCEL = 2200 // units/sec² — snappy but not instant
 export const FRICTION = 14 // per second, applied when input is idle
 
+// ── Tools ────────────────────────────────────────────────────────────────────
+// Mischief pickups. Like keys they spawn on the floor at seeded-random open tiles and are
+// grabbed by walking over them (runners only). Each player carries up to TOOL_SLOTS of
+// them, shown top-right on their screen, and uses one by tapping its icon (or keys 1/2):
+// it deploys at their feet, and it works on everyone else — the ghost included.
+export const TOOL_NONE = 0
+/** A jar of goo: shatters into a puddle that slows everyone else who crosses it. */
+export const TOOL_GOO = 1
+/** A snap trap: arms after a moment, knocks the first other player to cross it out cold. */
+export const TOOL_TRAP = 2
+export const MAX_TOOL_SPAWNS = 6
+export const TOOL_SLOTS = 2
+export const TOOL_GRAB_R = 44
+/** Deployed tools live in a fixed pool; using a tool while it is full simply fails. */
+export const MAX_DEPLOYED = 8
+export const GOO_RADIUS = 95
+export const GOO_LIFE_MS = 8_000
+export const GOO_SLOW_MULT = 0.45
+/** The slow lingers briefly after leaving the puddle — goo sticks to shoes. */
+export const GOO_LINGER_MS = 400
+export const TRAP_RADIUS = 36
+export const TRAP_ARM_MS = 1_200
+export const TRAP_LIFE_MS = 25_000
+
 // ── Transformation (tag → new ghost) ─────────────────────────────────────────
 // A tag no longer swaps the ghost instantly. The touched player spends TRANSFORM_DELAY_MS
 // "turning" — stumbling at TURNING_SPEED_MULT, wreathed in the bat animation — while the
@@ -96,10 +127,11 @@ export const TURNING_SPEED_MULT = 0.1
 /** No It-time accrues while turning: charging a mandatory 5s would swamp the scoring. */
 
 // ── Unconsciousness (trail contact) ──────────────────────────────────────────
-// Ghost trails are not walls (ADR 0012) — they are hazards: WALK into any player's
-// breadcrumbs (your own included) and you faint for UNCONSCIOUS_MS, input dead, fully
-// vulnerable. "Walk into" is literal: it triggers on moving across a trail's edge, never
-// on standing still while a replay sweeps over you — otherwise idling would chain-stun.
+// Ghost trails are not walls (ADR 0012) — they are hazards, and ONLY the ghost leaves
+// one (humans have no live trail): WALK into the ghost's breadcrumbs and you faint for
+// UNCONSCIOUS_MS, input dead, fully vulnerable. "Walk into" is literal: it triggers on
+// moving across a trail's edge, never on standing still while a replay sweeps over you —
+// otherwise idling would chain-stun.
 export const UNCONSCIOUS_MS = 3_000
 /** You must be moving at least this fast (world units/s) for trail contact to count. */
 export const KO_MIN_SPEED = 60
@@ -134,7 +166,7 @@ export const SLIDE_FRICTION = 0.92
 // ── Rendering budget (Tech doc §3.2) ─────────────────────────────────────────
 export const SQUARES_PER_PLAYER = 180 // within the 150–250 band
 export const SQUARE_SIZE = 3 // simulation units per body square
-export const ECHO_SQUARES = 16 // simplified silhouette only — coarse enough to read as a wall
+export const ECHO_SQUARES = 16 // simplified silhouette only — coarse enough to read as a hazard trail at a glance
 /**
  * How wide an echo is *drawn*, relative to its collision diameter.
  *
@@ -144,18 +176,19 @@ export const ECHO_SQUARES = 16 // simplified silhouette only — coarse enough t
  * every past-self game warns about. 1.15 is the smallest value that still closes the gaps
  * between consecutive bodies at full speed.
  *
- * At full speed a player lays down echo bodies `PLAYER_SPEED * ECHO_STRIDE * TICK_MS` apart
- * — 48 world units — while an echo only blocks within `ECHO_RADIUS` (16.2) of its centre.
- * The trail is still solid to walk into (the midpoint between two bodies is inside both
- * contact circles) but drawn at true collision size it *looks* like a dotted line of
- * separate blobs, which tells the player they can slip through a gap that is not there.
+ * At full speed the ghost lays down echo bodies `PLAYER_SPEED * ECHO_STRIDE * TICK_MS` apart
+ * — 48 world units — while an echo's hazard only reaches `ECHO_RADIUS` (16.2) from its
+ * centre. The trail is still contiguous to walk into (the midpoint between two bodies is
+ * inside both contact circles) but drawn at true contact size it *looks* like a dotted line
+ * of separate blobs, which tells the player they can slip through a gap that is not there.
  *
  * So echoes are drawn slightly larger than they collide. The direction matters: erring
  * generous means a player occasionally finds a gap where they expected a wall, which reads
  * as luck. Erring mean would mean being stopped by empty space, which reads as a bug.
  */
 export const ECHO_VISUAL_SCALE = 1.15
-/** 12*180 + 180*28 ≈ 7.2k particles, two ParticleContainers, ~2 draw calls. */
+/** 12×168 body + 180×16 echo = 4,896 particles, two ParticleContainers, ~2 draw calls.
+ * (Echo capacity covers all 180 body ids; only the ghost's 15 are ever live — ADR 0013.) */
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 // Revised with the cozy retheme (ADR 0006): the tech doc's harsh neon-on-charcoal read as

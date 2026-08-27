@@ -96,32 +96,36 @@ describe('determinism', () => {
 })
 
 describe('echoes', () => {
-  it('fills the trail in over exactly the echo delay', () => {
+  it("fills the ghost's trail in over exactly the echo delay; humans have none", () => {
     const w = playing(2)
     const inputs = new Uint8Array(MAX_PLAYERS)
     inputs[0] = EAST
     inputs[1] = EAST
+    const ghost = w.itSlot
+    const human = ghost === 0 ? 1 : 0
 
     const ticksToFill = ECHO_DELAY_MS / TICK_MS
     let live = 0
     for (const b of w.bodyLive) live += b
     // The Countdown already samples, so some bodies exist — but not all of them.
-    assert.ok(live < MAX_PLAYERS * ECHO_BODIES_PER_PLAYER, 'trail should not start full')
+    assert.ok(live < ECHO_BODIES_PER_PLAYER, 'trail should not start full')
 
     run(w, ticksToFill, inputs)
     live = 0
-    for (let s = 0; s < 2; s++) {
-      for (let k = 0; k < ECHO_BODIES_PER_PLAYER; k++) {
-        live += w.bodyLive[s * ECHO_BODIES_PER_PLAYER + k]!
-      }
+    let humanLive = 0
+    for (let k = 0; k < ECHO_BODIES_PER_PLAYER; k++) {
+      live += w.bodyLive[ghost * ECHO_BODIES_PER_PLAYER + k]!
+      humanLive += w.bodyLive[human * ECHO_BODIES_PER_PLAYER + k]!
     }
-    assert.equal(live, 2 * ECHO_BODIES_PER_PLAYER, 'both trails should be fully populated')
+    assert.equal(live, ECHO_BODIES_PER_PLAYER, "the ghost's trail should be fully populated")
+    assert.equal(humanLive, 0, 'a human must leave no live trail')
   })
 
   it('does not weld a player to their own freshest echo', () => {
     // A full lobby, for the largest arena — with a small arena the player would reach the
     // wall inside the measurement window and we would be testing the bounds, not echoes.
     const w = playing(MAX_PLAYERS)
+    setIt(w, 0) // only the ghost has a trail to weld to
     const inputs = new Uint8Array(MAX_PLAYERS)
     inputs[0] = EAST
 
@@ -148,6 +152,7 @@ describe('echoes', () => {
     // driving through a trail region means at most one faint, then passage; never a wall,
     // never the old bulldozer shove, never a chain-stun.
     const w = playing(MAX_PLAYERS)
+    setIt(w, 0) // the trail under test is the ghost's own
     const inputs = new Uint8Array(MAX_PLAYERS)
 
     w.x[0] = MAP_TILE * 2
@@ -173,15 +178,17 @@ describe('echoes', () => {
     )
   })
 
-  it("a standing player's echo pile faints a walker once, never walls them", () => {
+  it("a standing ghost's echo pile faints a walker once, never walls them", () => {
     const w = playing(2)
     const inputs = new Uint8Array(MAX_PLAYERS)
+    setIt(w, 1) // the pile owner must be the ghost — only the ghost's trail is live
     w.x[0] = MAP_TILE * 4
     w.y[0] = MAP_TILE * 6.5
     w.x[1] = MAP_TILE * 8
     w.y[1] = MAP_TILE * 6.5
-    run(w, 80, inputs) // slot 1 stands still long enough to stack a full echo pile
+    run(w, 80, inputs) // the ghost stands still long enough to stack a full echo pile
 
+    w.immuneUntilTick[0] = 1 << 30 // scaffold: block the tag so only passage is tested
     inputs[0] = EAST
     run(w, 200, inputs) // walking into the pile faints slot 0; then they pass through
     assert.ok(
@@ -195,6 +202,7 @@ describe('tagging', () => {
   it('contact begins the metamorphosis; the role transfers after the delay, with immunity', () => {
     const w = playing(2)
     setIt(w, 0)
+    w.tagBackUntilTick = 0 // scaffold setIt is not a real handover: no tag-back shield
     // Place them a hair outside tag range, facing each other.
     w.x[0] = w.arenaW / 2
     w.y[0] = w.arenaH / 2
@@ -219,6 +227,7 @@ describe('tagging', () => {
   it('blocks an instant tag-back for the full immunity window', () => {
     const w = playing(2)
     setIt(w, 0)
+    w.tagBackUntilTick = 0 // scaffold setIt is not a real handover: no tag-back shield
     w.x[0] = w.arenaW / 2
     w.y[0] = w.arenaH / 2
     w.x[1] = w.arenaW / 2 + PLAYER_RADIUS * 2 + 4
@@ -227,9 +236,10 @@ describe('tagging', () => {
 
     const inputs = new Uint8Array(MAX_PLAYERS)
     inputs[0] = EAST
-    while (stepWorld(w, inputs).tagCount === 0) {
-      /* close the distance */
-    }
+    // Bounded: a missed tag must fail loud, never hang the suite.
+    let touched = false
+    for (let t = 0; t < 60 && !touched; t++) touched = stepWorld(w, inputs).tagCount > 0
+    assert.ok(touched, 'It never caught a stationary neighbour')
 
     const newIt = w.itSlot
     const immunityTicks = Math.ceil(TAG_IMMUNITY_MS / TICK_MS)

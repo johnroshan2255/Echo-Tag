@@ -27,7 +27,14 @@ export const isImmune = (w: World, slot: Slot): boolean => w.tick < w.immuneUnti
 export const setIt = (w: World, to: Slot): void => {
   const from = w.itSlot
   w.itSlot = to
-  if (to !== NO_SLOT) w.immuneUntilTick[to] = w.tick + IMMUNITY_TICKS
+  if (to !== NO_SLOT) {
+    w.immuneUntilTick[to] = w.tick + IMMUNITY_TICKS
+    // The trail is a property of BEING the ghost: it starts empty at crowning and grows
+    // over the next 3s (rebuildEchoBodies admits only samples from itSinceTick on). The
+    // new ghost's pre-crowning past never becomes a hazard — humans get the lull plus
+    // this ramp as their head start.
+    w.itSinceTick = w.tick
+  }
   if (from !== NO_SLOT && from !== to) {
     w.tagCooldownUntilTick[from] = w.tick + COOLDOWN_TICKS
     // No tag-backs: the pair overlap at the moment of transfer (bodies pass through),

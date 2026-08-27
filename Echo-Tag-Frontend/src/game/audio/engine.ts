@@ -48,6 +48,17 @@ export const createAudioEngine = (): AudioEngine => {
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
 
     void ctx.resume()
+    // The refresh-rejoin path starts the game with no user gesture, so the context comes
+    // up suspended; the first press or tap unlocks it. One-shot listeners, self-removing.
+    if (ctx.state === 'suspended') {
+      const unlock = (): void => {
+        void ctx.resume()
+        removeEventListener('pointerdown', unlock)
+        removeEventListener('keydown', unlock)
+      }
+      addEventListener('pointerdown', unlock)
+      addEventListener('keydown', unlock)
+    }
     return { ctx, master, tone, noise, muted: false }
   } catch {
     return { ctx: null, master: null, tone: null, noise: null, muted: true }

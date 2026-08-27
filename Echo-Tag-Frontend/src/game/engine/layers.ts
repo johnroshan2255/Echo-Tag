@@ -8,6 +8,9 @@ import { createIndicatorLayer, type IndicatorLayer } from '../render/indicator.t
 import { createMarkerLayer, type MarkerLayer } from '../render/wardrobeMarkers.ts'
 import { createAmbienceLayer, seedAmbience, type AmbienceLayer } from '../render/ambience.ts'
 import { createFogLayer, type FogLayer } from '../render/fog.ts'
+import { createTerrorLayer, type TerrorLayer } from '../render/terror.ts'
+import { createInteriorLayer, type InteriorLayer } from '../render/interior.ts'
+import { createToolsLayer, type ToolsLayer } from '../render/toolsRenderer.ts'
 import type { GameMap } from '@echo-tag/shared'
 
 /**
@@ -33,12 +36,15 @@ export interface Layers {
   overlay: Container
   arena: ArenaLayer
   ambience: AmbienceLayer
+  tools: ToolsLayer
   doors: DoorLayer
   echoes: EchoLayer
   fx: FxLayer
   bodies: BodyLayer
   markers: MarkerLayer
   fog: FogLayer
+  interior: InteriorLayer
+  terror: TerrorLayer
   indicator: IndicatorLayer
 }
 
@@ -49,15 +55,19 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
 
   const arena = createArenaLayer()
   const ambience = createAmbienceLayer(square)
+  const tools = createToolsLayer()
   const doors = createDoorLayer(square)
   const echoes = createEchoLayer(square)
   const fx = createFxLayer(glow)
   const bodies = createBodyLayer(square)
   const markers = createMarkerLayer()
   const fog = createFogLayer(fogTex)
+  const interior = createInteriorLayer(square)
+  const terror = createTerrorLayer(square)
   const indicator = createIndicatorLayer()
 
   worldRoot.addChild(arena.container)
+  worldRoot.addChild(tools.container) // puddles, traps and pickups sit ON the floor
   worldRoot.addChild(doors.container) // doors are architecture: above floor, below actors
   worldRoot.addChild(ambience.container) // fireflies drift under everything that matters
   worldRoot.addChild(echoes.container)
@@ -66,12 +76,14 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
   worldRoot.addChild(markers.container) // your keyholes float above everything in-world
   // Fog is screen-space, above the whole world — the arrow alone pierces it.
   overlay.addChild(fog.container)
+  overlay.addChild(interior.container) // hiding blinds you: wardrobe darkness over everything
+  overlay.addChild(terror.container) // the victim's glitch bars tear over everything but the arrow
   overlay.addChild(indicator.container)
 
   stage.addChild(worldRoot)
   stage.addChild(overlay)
 
-  return { stage, worldRoot, overlay, arena, ambience, doors, echoes, fx, bodies, markers, fog, indicator }
+  return { stage, worldRoot, overlay, arena, ambience, tools, doors, echoes, fx, bodies, markers, fog, interior, terror, indicator }
 }
 
 /** Rebuilds the map drawing and re-seeds the set dressing. Call on map change. */
