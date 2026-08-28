@@ -2,7 +2,6 @@ import {
   ECHO_GRACE_SAMPLES,
   KO_MIN_SPEED,
   MAX_PLAYERS,
-  OWN_TRAIL_GRACE_SAMPLES,
   TICK_MS,
   UNCONSCIOUS_MS,
 } from '../constants.ts'
@@ -14,19 +13,19 @@ import type { World } from './world.ts'
  * Unconsciousness on trail contact.
  *
  * Trails are not walls (ADR 0012) — they are hazards, and only the GHOST has one (humans
- * leave no live trail; see rebuildEchoBodies). WALK into the ghost's breadcrumbs — the
- * ghost's own past included — and you faint for UNCONSCIOUS_MS: input dead, body
- * collapsed, fully vulnerable to the ghost. Recovery is automatic — no mashing.
+ * leave no live trail; see rebuildEchoBodies). WALK into the ghost's breadcrumbs and you
+ * faint for UNCONSCIOUS_MS: input dead, body collapsed, fully vulnerable to the ghost.
+ * Recovery is automatic — no mashing.
  *
- * "Walk into" is enforced literally, with three guards that all exist because the trail
- * MOVES (it replays the ghost's past) and the ghost is standing in its own:
+ * "Walk into" is enforced literally, with two guards that exist because the trail
+ * MOVES (it replays the ghost's past):
  *   1. speed gate — you must be moving faster than KO_MIN_SPEED. A replay sweeping over a
  *      stationary player is not the player's mistake.
  *   2. edge transition — KO fires only when you gain overlap with an owner's trail you
  *      were NOT overlapping last tick (per-owner bitmask). Waking up inside a trail and
  *      walking out of it cannot re-stun you; only crossing back IN can.
- *   3. age grace — your own freshest second of trail hugs you at low speed by definition
- *      (OWN_TRAIL_GRACE_SAMPLES); others' trails use the standard grace.
+ *
+ * Note: The ghost is immune to their own trail.
  *
  * Exemptions: the turning player (already locked in their metamorphosis), the hidden
  * (inside a wardrobe, off the floor), and the already-unconscious.
@@ -81,7 +80,8 @@ export const updateTrailStuns = (w: World): void => {
           const id = items[i]!
           if (bodyLive[id] === 0) continue
           const owner = bodyOwner[id]!
-          const grace = owner === p ? OWN_TRAIL_GRACE_SAMPLES : ECHO_GRACE_SAMPLES
+          if (owner === p) continue // Ghost is immune to their own trail
+          const grace = ECHO_GRACE_SAMPLES
           if (bodyAge[id]! <= grace) continue
           const dx = px - bodyX[id]!
           const dy = py - bodyY[id]!

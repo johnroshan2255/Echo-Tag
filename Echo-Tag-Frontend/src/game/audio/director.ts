@@ -9,7 +9,7 @@ import {
   type World,
 } from '@echo-tag/shared'
 import { createAudioEngine, distanceGain, panFor, setMuffled, setMuted, type AudioEngine } from './engine.ts'
-import { batFlutter, doorCreak, doorThud, footstep, heartThump, nightGroan, startAmbientBed, tagSting } from './voices.ts'
+import { batFlutter, doorCreak, doorThud, wardrobeOpen, wardrobeClose, footstep, ghostFootstep, heartThump, nightGroan, startAmbientBed, tagSting } from './voices.ts'
 
 /**
  * The audio director: decides each frame what the world sounds like from where you stand.
@@ -33,9 +33,7 @@ export interface AudioDirector {
   engine: AudioEngine
   update(world: World, localSlot: number, dtMs: number): void
   onTag(world: World, localSlot: number, from: number, to: number): void
-  /** A bat flock just launched — wings, panned at random. */
   flutter(): void
-  /** Hard mute/unmute — ad breaks require silence for their whole duration. */
   setMuted(muted: boolean): void
   destroy(): void
 }
@@ -57,6 +55,20 @@ export const createAudioDirector = (): AudioDirector => {
   let externalMuted = false
   const onVisibility = (): void => setMuted(engine, document.hidden || externalMuted)
   document.addEventListener('visibilitychange', onVisibility)
+
+  // ── Player Audio State ──
+  interface PlayerAudio {
+    src: AudioBufferSourceNode | null
+    gain: GainNode | null
+    pan: StereoPannerNode | null
+    wasStopped: boolean
+  }
+  const playerAudio: PlayerAudio[] = Array.from({ length: MAX_PLAYERS }, () => ({
+    src: null,
+    gain: null,
+    pan: null,
+    wasStopped: true
+  }))
 
   return {
     engine,
@@ -109,33 +121,84 @@ export const createAudioDirector = (): AudioDirector => {
           const dist = Math.sqrt(dx * dx + dy * dy)
           const gain = s === localSlot ? 0.7 : distanceGain(dist, DOOR_EARSHOT)
           const pan = s === localSlot ? 0 : panFor(dx)
-          if (now !== NO_SLOT) doorCreak(engine, { gain: gain * 0.7, pan })
-          else doorThud(engine, { gain: gain * 0.8, pan })
+          if (now !== NO_SLOT) wardrobeOpen(engine, { gain: gain * 0.7, pan })
+          else wardrobeClose(engine, { gain: gain * 0.8, pan })
           prevHiddenIn[s] = now
         }
       }
 
-      // ── Footsteps ──
+      // ── Footsteps (Stride-based) ──
+      let remoteStepsThisFrame = 0
       for (let s = 0; s < MAX_PLAYERS; s++) {
         if (world.active[s] === 0) continue
+        const pa = playerAudio[s]!
         const speed = Math.sqrt(world.vx[s]! * world.vx[s]! + world.vy[s]! * world.vy[s]!)
+        
         if (speed < 20) {
-          strideAcc[s] = 0
+          if (!pa.wasStopped) {
+            // Player just stopped. Immediately kill the sound so the MP3 tail doesn't linger 
+            // at their last stationary position (which sounds like the trail is making noise).
+            if (pa.src) {
+              try { pa.src.stop(); pa.src.disconnect() } catch {}
+              pa.src = null
+            }
+          }
+          pa.wasStopped = true
           continue
         }
+
+        if (pa.wasStopped) {
+          strideAcc[s] = Math.random() * (STRIDE * 0.5) // Randomize start to prevent perfect sync congestion
+          pa.wasStopped = false
+        }
+
         strideAcc[s] = strideAcc[s]! + speed * (dtMs / 1000)
         if (strideAcc[s]! < STRIDE) continue
         strideAcc[s] = 0
 
-        if (s === localSlot) {
-          footstep(engine, { gain: 0.1, pan: 0 }) // your own steps: felt, not heard
-          continue
+        // A footstep triggers!
+        if (s !== localSlot && remoteStepsThisFrame >= 2) continue
+
+        const isGhost = s === world.itSlot
+        const buf = engine.buffers.get('human') // Use human walking sound for ghost too
+        if (!buf || !engine.ctx || !engine.master) continue
+
+        // Stop previous step for this player to prevent overlapping "trail" sounds
+        if (pa.src) {
+          try { pa.src.stop(); pa.src.disconnect() } catch {}
         }
-        const dx = world.x[s]! - lx
-        const dy = world.y[s]! - ly
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        const gain = distanceGain(dist, STEP_EARSHOT)
-        if (gain > 0.01) footstep(engine, { gain: gain * 0.55, pan: panFor(dx) })
+
+        if (!pa.gain) {
+          pa.gain = engine.ctx.createGain()
+          pa.pan = engine.ctx.createStereoPanner()
+          pa.pan.connect(pa.gain)
+          pa.gain.connect(engine.master)
+        }
+
+        pa.src = engine.ctx.createBufferSource()
+        pa.src.buffer = buf
+        
+        // Game pacing is fast (4 steps/sec). Make the MP3 play significantly faster so it 
+        // sounds like running rather than casual walking, scaled by their actual speed.
+        let rate = (speed / 240) * 2.0 
+        if (isGhost) rate *= 1.1 // Ghost sounds slightly faster
+        pa.src.playbackRate.value = rate
+        
+        pa.src.connect(pa.pan!)
+
+        if (s === localSlot) {
+          pa.gain!.gain.value = 1.0
+          pa.pan!.pan.value = 0
+        } else {
+          const dx = world.x[s]! - lx
+          const dy = world.y[s]! - ly
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          pa.gain!.gain.value = distanceGain(dist, STEP_EARSHOT) * 0.8
+          pa.pan!.pan.value = panFor(dx)
+          remoteStepsThisFrame++
+        }
+
+        pa.src.start()
       }
 
       // ── Heartbeat ──
@@ -189,6 +252,11 @@ export const createAudioDirector = (): AudioDirector => {
 
     destroy(): void {
       document.removeEventListener('visibilitychange', onVisibility)
+      for (const pa of playerAudio) {
+        if (pa.src) {
+          try { pa.src.stop(); pa.src.disconnect() } catch {}
+        }
+      }
       void engine.ctx?.close()
     },
   }

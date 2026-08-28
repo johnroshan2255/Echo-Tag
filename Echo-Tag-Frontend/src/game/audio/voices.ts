@@ -11,6 +11,7 @@ import type { AudioEngine } from './engine.ts'
 interface Placed {
   gain: number
   pan: number
+  rate?: number
 }
 
 /** Small helper: a gain+panner chain that auto-disconnects when the voice ends. */
@@ -97,7 +98,37 @@ export const doorThud = (a: AudioEngine, p: Placed): void => {
   cf.connect(cg)
   cg.connect(out)
   click.start(t)
-  click.stop(t + 0.08)
+  click.stop(t + 0.1)
+}
+
+export const wardrobeOpen = (a: AudioEngine, p: Placed): void => {
+  if (!a.ctx) return
+  const buf = a.buffers.get('door')
+  if (!buf) return
+  const t = a.ctx.currentTime
+  const out = bus(a, p, t + buf.duration + 0.1)
+  if (!out) return
+
+  const src = a.ctx.createBufferSource()
+  src.buffer = buf
+  src.playbackRate.value = 1.0
+  src.connect(out)
+  src.start(t)
+}
+
+export const wardrobeClose = (a: AudioEngine, p: Placed): void => {
+  if (!a.ctx) return
+  const buf = a.buffers.get('door')
+  if (!buf) return
+  const t = a.ctx.currentTime
+  const out = bus(a, p, t + buf.duration + 0.1)
+  if (!out) return
+
+  const src = a.ctx.createBufferSource()
+  src.buffer = buf
+  src.playbackRate.value = 0.85
+  src.connect(out)
+  src.start(t)
 }
 
 /** One heartbeat thump — the director calls this on its own accelerating schedule. */
@@ -119,27 +150,55 @@ export const heartThump = (a: AudioEngine, gain: number): void => {
   setTimeout(() => env.disconnect(), 300)
 }
 
-/** A soft footstep tick. Others' steps are how you track what you cannot see. */
+/** A footstep tick. Now louder and more audible as requested. */
 export const footstep = (a: AudioEngine, p: Placed): void => {
-  if (!a.ctx || !a.noise) return
+  if (!a.ctx) return
+  const buf = a.buffers.get('human')
+  if (!buf) return
   const t = a.ctx.currentTime
-  const out = bus(a, p, t + 0.1)
+  
+  // Cut off after 0.25s max to prevent overlapping tails
+  const duration = Math.min(buf.duration, 0.25)
+  const out = bus(a, p, t + duration)
   if (!out) return
+  
   const src = a.ctx.createBufferSource()
-  src.buffer = a.noise
-  src.playbackRate.value = 0.7 + Math.random() * 0.25
-  const filt = a.ctx.createBiquadFilter()
-  filt.type = 'bandpass'
-  filt.frequency.value = 300 + Math.random() * 120
-  filt.Q.value = 1.6
+  src.buffer = buf
+  if (p.rate) src.playbackRate.value = p.rate
+  
   const env = a.ctx.createGain()
-  env.gain.setValueAtTime(0.5, t)
-  env.gain.exponentialRampToValueAtTime(0.0001, t + 0.07)
-  src.connect(filt)
-  filt.connect(env)
+  env.gain.setValueAtTime(1.0, t)
+  env.gain.exponentialRampToValueAtTime(0.01, t + duration)
+  
+  src.connect(env)
   env.connect(out)
   src.start(t)
-  src.stop(t + 0.09)
+  src.stop(t + duration + 0.05)
+}
+
+/** A heavier, unsettling thud for the ghost's footstep. */
+export const ghostFootstep = (a: AudioEngine, p: Placed): void => {
+  if (!a.ctx) return
+  const buf = a.buffers.get('ghost')
+  if (!buf) return
+  const t = a.ctx.currentTime
+  
+  const duration = Math.min(buf.duration, 0.35)
+  const out = bus(a, p, t + duration)
+  if (!out) return
+  
+  const src = a.ctx.createBufferSource()
+  src.buffer = buf
+  if (p.rate) src.playbackRate.value = p.rate
+  
+  const env = a.ctx.createGain()
+  env.gain.setValueAtTime(1.0, t)
+  env.gain.exponentialRampToValueAtTime(0.01, t + duration)
+  
+  src.connect(env)
+  env.connect(out)
+  src.start(t)
+  src.stop(t + duration + 0.05)
 }
 
 /** The tag: a two-note minor sting, louder when it involves you. */
@@ -214,31 +273,46 @@ export const startAmbientBed = (a: AudioEngine): void => {
   drone.start()
 }
 
-/** A passing flock: six quick leathery wingbeats, panned wide and kept low. */
+/** A bat flock just launched — wings, flying across the screen. */
 export const batFlutter = (a: AudioEngine, pan: number): void => {
-  if (!a.ctx || !a.noise || !a.master || a.muted) return
+  if (!a.ctx || !a.master || a.muted) return
+  const buf = a.buffers.get('bats')
+  if (!buf) return
   const t = a.ctx.currentTime
-  const out = bus(a, { gain: 0.16, pan }, t + 0.9)
-  if (!out) return
-  for (let i = 0; i < 6; i++) {
-    const at = t + i * 0.09
-    const src = a.ctx.createBufferSource()
-    src.buffer = a.noise
-    src.playbackRate.value = 0.9 + i * 0.05
-    const filt = a.ctx.createBiquadFilter()
-    filt.type = 'bandpass'
-    filt.frequency.value = 900 + i * 120
-    filt.Q.value = 2.2
-    const env = a.ctx.createGain()
-    env.gain.setValueAtTime(0.0001, at)
-    env.gain.exponentialRampToValueAtTime(0.5, at + 0.015)
-    env.gain.exponentialRampToValueAtTime(0.0001, at + 0.07)
-    src.connect(filt)
-    filt.connect(env)
-    env.connect(out)
-    src.start(at)
-    src.stop(at + 0.09)
-  }
+  
+  // The bat flock takes ~4.9s to cross the screen (2100 distance at 430 speed)
+  const duration = Math.min(buf.duration, 5.0)
+  
+  const panner = a.ctx.createStereoPanner()
+  // Fly across the screen by panning from the opposite side to the target side
+  panner.pan.setValueAtTime(-pan, t)
+  panner.pan.linearRampToValueAtTime(pan, t + duration)
+
+  const env = a.ctx.createGain()
+  // Fade in when they spawn, hold, then fade out as they hide
+  env.gain.setValueAtTime(0.0001, t)
+  env.gain.exponentialRampToValueAtTime(1.0, t + (duration * 0.2))
+  env.gain.setValueAtTime(1.0, t + (duration * 0.8))
+  env.gain.exponentialRampToValueAtTime(0.0001, t + duration)
+  
+  panner.connect(env)
+  env.connect(a.master)
+
+  const src = a.ctx.createBufferSource()
+  src.buffer = buf
+  src.playbackRate.value = 1.05 // Slightly frantic speed
+  src.connect(panner)
+  src.start(t)
+  src.stop(t + duration)
+  
+  // Cleanup
+  setTimeout(() => {
+    try {
+      src.disconnect()
+      panner.disconnect()
+      env.disconnect()
+    } catch {}
+  }, duration * 1000 + 100)
 }
 
 /**

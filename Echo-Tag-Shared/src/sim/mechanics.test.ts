@@ -199,7 +199,7 @@ describe('unconscious on trail contact', () => {
     }
   })
 
-  it("own trail counts: the ghost circling back across its own path faints it", () => {
+  it("own trail is safe: the ghost circling back across its own path does not faint it", () => {
     const w = playing(1)
     assert.equal(w.itSlot, 0, 'a lone player is always the ghost')
     const inputs = new Uint8Array(MAX_PLAYERS)
@@ -214,7 +214,7 @@ describe('unconscious on trail contact', () => {
         fainted = w.tick < w.unconsciousUntilTick[0]!
       }
     }
-    assert.ok(fainted, "crossing your own old trail should be as dangerous as anyone else's")
+    assert.ok(!fainted, "crossing your own old trail should be safe for the ghost")
   })
 
   it('does not chain-stun at spawn or when walking out of your own fresh trail', () => {

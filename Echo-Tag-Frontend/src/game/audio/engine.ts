@@ -12,6 +12,11 @@
  * untouched.
  */
 
+import humanMp3 from '../../../sounds/human.mp3'
+import ghostMp3 from '../../../sounds/gost.mp3'
+import batsMp3 from '../../../sounds/bats.mp3'
+import doorMp3 from '../../../sounds/door-open-close.mp3'
+
 export interface AudioEngine {
   ctx: AudioContext | null
   master: GainNode | null
@@ -20,16 +25,17 @@ export interface AudioEngine {
   /** Shared noise buffer — one second of white noise, reused by every noise-based voice. */
   noise: AudioBuffer | null
   muted: boolean
+  buffers: Map<string, AudioBuffer>
 }
 
 export const createAudioEngine = (): AudioEngine => {
   try {
     const Ctx = globalThis.AudioContext
-    if (!Ctx) return { ctx: null, master: null, tone: null, noise: null, muted: true }
+    if (!Ctx) return { ctx: null, master: null, tone: null, noise: null, muted: true, buffers: new Map() }
     const ctx = new Ctx()
 
     const master = ctx.createGain()
-    master.gain.value = 0.55
+    master.gain.value = 1.2
     // Master tone: everything routes through one lowpass so "inside a wardrobe" can muffle
     // the entire world with a single parameter ramp.
     const tone = ctx.createBiquadFilter()
@@ -59,15 +65,34 @@ export const createAudioEngine = (): AudioEngine => {
       addEventListener('pointerdown', unlock)
       addEventListener('keydown', unlock)
     }
-    return { ctx, master, tone, noise, muted: false }
+    const engine: AudioEngine = { ctx, master, tone, noise, muted: false, buffers: new Map() }
+
+    const loadSound = async (name: string, url: string) => {
+      try {
+        const resp = await fetch(url)
+        const arrayBuffer = await resp.arrayBuffer()
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+        engine.buffers.set(name, audioBuffer)
+      } catch (e) {
+        console.error('Failed to load sound', name, e)
+      }
+    }
+
+    void loadSound('human', humanMp3)
+    void loadSound('ghost', ghostMp3)
+    void loadSound('bats', batsMp3)
+    void loadSound('door', doorMp3)
+
+    return engine
   } catch {
-    return { ctx: null, master: null, tone: null, noise: null, muted: true }
+    // If AudioContext fails (e.g. headless tests), return a silent stub.
+    return { ctx: null, master: null, tone: null, noise: null, muted: false, buffers: new Map() }
   }
 }
 
 export const setMuted = (a: AudioEngine, muted: boolean): void => {
   a.muted = muted
-  if (a.master) a.master.gain.value = muted ? 0 : 0.55
+  if (a.master) a.master.gain.value = muted ? 0 : 1.2
 }
 
 /** Distance/pan helpers: world-space offsets to a listener-relative gain and pan. */
