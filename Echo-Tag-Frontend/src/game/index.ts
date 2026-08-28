@@ -1,6 +1,8 @@
 import {
   BG_COLOR,
   ECHO_BODIES_PER_PLAYER,
+  EMOTE_COUNT,
+  EMOTE_SHOW_MS,
   MAP_COUNT,
   MAX_PLAYERS,
   NO_SLOT,
@@ -40,8 +42,16 @@ import { renderIndicator } from './render/indicator.ts'
 import { renderInterior } from './render/interior.ts'
 import { renderTerror } from './render/terror.ts'
 import { renderTools } from './render/toolsRenderer.ts'
-import { JAR_ICON, TRAP_ICON, drawIconToCanvas } from './render/pixelIcons.ts'
-import { createAnimState, onTagged, renderPlayers } from './render/playerRenderer.ts'
+import { EMOTE_ICONS, JAR_ICON, SOUND_OFF_ICON, SOUND_ON_ICON, TRAP_ICON, drawIconToCanvas } from './render/pixelIcons.ts'
+import { createBanner } from './render/banner.ts'
+import {
+  createAnimState,
+  createEmoteState,
+  onTagged,
+  renderEmotes,
+  renderPlayers,
+  triggerEmote,
+} from './render/playerRenderer.ts'
 import { BODY, ECHO } from './render/templates.ts'
 import { renderMarkers } from './render/wardrobeMarkers.ts'
 import { pokiCommercialBreak, pokiGameplayStart, pokiGameplayStop } from '../platform/poki.ts'
@@ -125,6 +135,18 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   const driver = createDriverState()
   // Created here — inside the Play-click call stack — so the AudioContext starts unlocked.
   const audio = createAudioDirector()
+  // Mute: the player's choice persists across sessions and combines with ad-break muting,
+  // so the end of a commercial never un-mutes someone who chose silence.
+  let userMuted = false
+  try {
+    userMuted = localStorage.getItem('echoTagMuted') === '1'
+  } catch {
+    /* storage can be blocked (previews, private mode); default to sound on */
+  }
+  let breakMuted = false
+  const applyMute = (): void => audio.setMuted(userMuted || breakMuted)
+  applyMute()
+  const emoteState = createEmoteState()
 
   // ── World: local simulation, or a mirror of the server's ──
   const net = mode.kind === 'bots' ? null : await (await import('./net/room.ts')).connect(
@@ -211,6 +233,70 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   }
   addEventListener('keydown', onToolKey)
 
+  // ── The round banner: each arena announces itself ──
+  const banner = createBanner()
+  banner.show(world.map.name)
+
+  // ── Mute button: bottom-right corner, clear of the thumb arcs ──
+  const CHIP_STYLE =
+    'width:52px;height:52px;padding:0;display:flex;align-items:center;justify-content:center;' +
+    'background:rgba(22,18,38,.72);border:1.5px solid rgba(255,243,220,.22);' +
+    'border-radius:10px;touch-action:none;cursor:pointer;user-select:none;-webkit-user-select:none;'
+  const muteBtn = document.createElement('button')
+  muteBtn.id = 'mute-btn'
+  muteBtn.style.cssText =
+    CHIP_STYLE +
+    'position:fixed;bottom:calc(14px + env(safe-area-inset-bottom));right:calc(14px + env(safe-area-inset-right));z-index:30;'
+  const muteCanvas = document.createElement('canvas')
+  muteCanvas.width = 40
+  muteCanvas.height = 40
+  muteCanvas.style.cssText = 'width:40px;height:40px;image-rendering:pixelated;'
+  const drawMute = (): void => drawIconToCanvas(muteCanvas, userMuted ? SOUND_OFF_ICON : SOUND_ON_ICON, 4)
+  drawMute()
+  muteBtn.appendChild(muteCanvas)
+  muteBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    userMuted = !userMuted
+    try {
+      localStorage.setItem('echoTagMuted', userMuted ? '1' : '0')
+    } catch {
+      /* fine — the choice just won't survive a reload */
+    }
+    applyMute()
+    drawMute()
+  })
+  document.body.appendChild(muteBtn)
+
+  // ── Emote buttons: a column under the tool belt. Tap to flash the icon over your head
+  // (relayed room-wide in multiplayer, like chat — the echo is the single source of truth).
+  const sendEmote = (n: number): void => {
+    if (net) net.sendEmote(n)
+    else triggerEmote(emoteState, LOCAL_SLOT, n, performance.now())
+  }
+  const emoteBar = document.createElement('div')
+  emoteBar.id = 'emotes'
+  emoteBar.style.cssText =
+    'position:fixed;top:calc(78px + env(safe-area-inset-top));right:calc(14px + env(safe-area-inset-right));' +
+    'display:flex;flex-direction:column;gap:8px;z-index:30;user-select:none;-webkit-user-select:none;'
+  for (let n = 0; n < EMOTE_COUNT; n++) {
+    const b = document.createElement('button')
+    b.style.cssText = CHIP_STYLE.replace(/width:52px;height:52px/, 'width:44px;height:44px')
+    const c = document.createElement('canvas')
+    c.width = 28
+    c.height = 28
+    c.style.cssText = 'width:28px;height:28px;image-rendering:pixelated;'
+    drawIconToCanvas(c, EMOTE_ICONS[n]!, 4)
+    b.appendChild(c)
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      sendEmote(n)
+    })
+    emoteBar.appendChild(b)
+  }
+  document.body.appendChild(emoteBar)
+
   const inputs = new Uint8Array(MAX_PLAYERS)
 
   // Previous-tick positions for render interpolation. In net mode the driver owns them
@@ -258,6 +344,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       mySlot: () => mySlot,
     })
     net.onChat((slot, text) => chatUi!.push(slot, text))
+    net.onEmote((slot, n) => triggerEmote(emoteState, slot, n, performance.now()))
     net.onLobby((view) => lobbyUi!.update(view))
     net.onTag((from, to) => {
       onTagged(anim, to, performance.now())
@@ -270,7 +357,16 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     const watchPhase = setInterval(() => {
       if (world.phase !== prevPhase) {
         if (prevPhase === RoundPhase.Playing) {
-          void pokiCommercialBreak(() => audio.setMuted(true), () => audio.setMuted(false))
+          void pokiCommercialBreak(
+            () => {
+              breakMuted = true
+              applyMute()
+            },
+            () => {
+              breakMuted = false
+              applyMute() // respects the player's own mute
+            },
+          )
         }
         prevPhase = world.phase
       }
@@ -280,6 +376,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       mySlot = net.mySlot
       setLayersMap(layers, world.map)
       snapCamera(cam, world.x[mySlot]!, world.y[mySlot]!)
+      banner.show(world.map.name)
     })
   } else {
     // Offline gets the same results board as multiplayer, driven from the local world.
@@ -367,7 +464,16 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     }
     if (ev.roundEnded) {
       // Between rounds is the platform's ad slot; audio stays silent for its duration.
-      void pokiCommercialBreak(() => audio.setMuted(true), () => audio.setMuted(false))
+      void pokiCommercialBreak(
+        () => {
+          breakMuted = true
+          applyMute()
+        },
+        () => {
+          breakMuted = false
+          applyMute() // respects the player's own mute
+        },
+      )
     }
 
     // Round over: show the results board for the leaderboard window. The sim itself
@@ -389,6 +495,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       prevBodyY.set(world.bodyY)
       snapCamera(cam, world.x[LOCAL_SLOT]!, world.y[LOCAL_SLOT]!)
       lobbyUi?.update(localResultsView()) // phase is Countdown now — hides the board
+      banner.show(world.map.name)
     }
     simTick++
   }
@@ -472,6 +579,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     renderFx(layers.fx, world, prevX, prevY, a, now)
     renderLantern(layers.fx, lx, ly, now)
     renderPlayers(layers.bodies, world, prevX, prevY, a, anim, now)
+    renderEmotes(layers.bodies, world, prevX, prevY, a, emoteState, now, EMOTE_SHOW_MS)
     renderMarkers(layers.markers, world, mySlot, now)
     const hidden = world.hiddenIn[mySlot] !== NO_SLOT
     if (!DEV_NOFOG) renderFog(layers.fog, cam, lx, ly, viewW, viewH, hidden ? HIDDEN_VISION_SCALE : 1)
@@ -530,6 +638,9 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       globalThis.visualViewport?.removeEventListener('resize', relayoutSettled)
       removeEventListener('keydown', onToolKey)
       toolbar.remove()
+      muteBtn.remove()
+      emoteBar.remove()
+      banner.destroy()
       hudTimer.destroy()
       document.removeEventListener('visibilitychange', onVis)
       keyboard.destroy()

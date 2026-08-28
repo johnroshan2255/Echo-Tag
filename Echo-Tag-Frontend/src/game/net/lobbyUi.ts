@@ -195,7 +195,8 @@ export const createLobbyUi = (
             return (
               `<div class="lobby-row"><span class="who">` +
               `<span class="lobby-dot${p.isBot ? ' bot' : ''}" style="background:${hex(PLAYER_COLORS[p.colorSlot % PLAYER_COLORS.length]!)}"></span>` +
-              `#${i + 1}${p.isBot ? ' · bot' : ''}</span><span>${tag} ${(p.itTimeMs / 1000).toFixed(1)}s</span></div>`
+              `#${i + 1}${p.isBot ? ' · bot' : ''}</span>` +
+              `<span>${tag} ${p.caught > 0 ? `<span style="opacity:.6">caught ${p.caught}x · </span>` : ''}${(p.itTimeMs / 1000).toFixed(1)}s</span></div>`
             )
           })
           .join('')

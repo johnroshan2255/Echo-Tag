@@ -5,6 +5,7 @@
  *     'i'  input frame        [seq u16, packed u8]
  *     'u'  use tool           [inventory slot u8] — deploys at the sender's feet
  *     'c'  chat               a short text line; relayed to the room, never stored
+ *     'e'  emote              an emote index; relayed to the room as {slot, n}
  *     'n'  bot count          host sets how many bots join at round start (private rooms)
  *     'm'  round minutes      host sets the round length (private rooms, lobby only)
  *     'g'  host pressed start (private lobbies only)
@@ -21,6 +22,7 @@ export const MSG = {
   Input: 'i',
   Use: 'u',
   Chat: 'c',
+  Emote: 'e',
   Bots: 'n',
   Mins: 'm',
   Go: 'g',

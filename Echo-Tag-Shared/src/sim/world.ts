@@ -99,6 +99,8 @@ export interface World {
   facing: Float32Array
   /** Accumulated time as "It" in ms. The score. Lower is better. */
   itTimeMs: Float32Array
+  /** Times each player was caught this round (entered a metamorphosis). Score tie-breaker. */
+  timesCaught: Uint8Array
   /** Tick until which this player cannot be tagged. */
   immuneUntilTick: Int32Array
   /** Tick until which this player cannot tag. Stops instant tag-backs. */
@@ -221,6 +223,7 @@ export const createWorld = (seed: number, mapIndex = 0): World => {
     vy: new Float32Array(MAX_PLAYERS),
     facing: new Float32Array(MAX_PLAYERS),
     itTimeMs: new Float32Array(MAX_PLAYERS),
+    timesCaught: new Uint8Array(MAX_PLAYERS),
     immuneUntilTick: new Int32Array(MAX_PLAYERS),
     tagCooldownUntilTick: new Int32Array(MAX_PLAYERS),
     lastInput: new Uint8Array(MAX_PLAYERS),
@@ -302,6 +305,7 @@ export const addPlayer = (w: World, isBot: boolean): Slot => {
     w.vx[s] = 0
     w.vy[s] = 0
     w.itTimeMs[s] = 0
+    w.timesCaught[s] = 0
     w.immuneUntilTick[s] = 0
     w.tagCooldownUntilTick[s] = 0
     w.lastInput[s] = IDLE_INPUT

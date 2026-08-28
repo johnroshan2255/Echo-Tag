@@ -29,6 +29,8 @@ export interface LeaderboardRow {
   isBot: boolean
   /** Total milliseconds spent as "It". Lower is better. */
   itTimeMs: number
+  /** Times this player was caught (entered a metamorphosis). Tie-breaker: fewer is better. */
+  caught: number
   /** 1-based, ties broken by slot for determinism. */
   rank: number
 }

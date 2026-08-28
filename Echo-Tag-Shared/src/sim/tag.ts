@@ -56,6 +56,7 @@ export const enterTurning = (w: World, slot: Slot): void => {
   w.itSlot = NO_SLOT // the old ghost is a person again, this very tick
   w.turningSlot = slot
   w.turningUntilTick = w.tick + TRANSFORM_TICKS
+  if (w.timesCaught[slot]! < 255) w.timesCaught[slot]!++ // the score tie-breaker
   if (from !== NO_SLOT) {
     w.tagCooldownUntilTick[from] = w.tick + COOLDOWN_TICKS
     // No tag-backs, armed through the WHOLE metamorphosis plus the immunity window: the

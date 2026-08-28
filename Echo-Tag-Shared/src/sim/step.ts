@@ -123,6 +123,7 @@ export const enterPhase = (w: World, phase: RoundPhase): void => {
       w.tagCooldownUntilTick[s] = 0
       w.lastInput[s] = IDLE_INPUT
     }
+    w.timesCaught.fill(0)
     w.hiddenIn.fill(-1)
     w.wardrobeCooldownUntil.fill(0)
     w.turningSlot = -1

@@ -50,8 +50,8 @@ export interface LobbyView {
   isHost: boolean
   isPrivate: boolean
   code: string
-  /** (colorSlot, itTimeMs, isBot) triples for the results screen. */
-  scores: Array<{ colorSlot: number; itTimeMs: number; isBot: boolean; slot: number }>
+  /** Ranked rows for the results screen: least It-time first, caught count as tiebreak. */
+  scores: Array<{ colorSlot: number; itTimeMs: number; caught: number; isBot: boolean; slot: number }>
 }
 
 export interface NetGame {
@@ -70,6 +70,9 @@ export interface NetGame {
   /** Sends a chat line to the room. Relay-only: nothing is stored anywhere. */
   sendChat(text: string): void
   onChat(cb: (slot: number, text: string) => void): void
+  /** Flashes emote n above this player's head, for everyone. Relay-only, like chat. */
+  sendEmote(n: number): void
+  onEmote(cb: (slot: number, n: number) => void): void
   /** Host only, private lobbies: how many bots should join at round start. */
   setBots(n: number): void
   /** Host only, private lobbies: round length in whole minutes (clamped server-side). */
@@ -136,12 +139,17 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
   let tagCb: ((from: number, to: number) => void) | null = null
   let roundCb: (() => void) | null = null
   let chatCb: ((slot: number, text: string) => void) | null = null
+  let emoteCb: ((slot: number, n: number) => void) | null = null
   let lastLobbyView: LobbyView | null = null
   let prevIt = NO_SLOT
   let firstSnapshot = true
 
   room.onMessage(MSG.Chat, (m: { slot: number; text: string }) => {
     if (typeof m?.slot === 'number' && typeof m?.text === 'string') chatCb?.(m.slot, m.text)
+  })
+
+  room.onMessage(MSG.Emote, (m: { slot: number; n: number }) => {
+    if (typeof m?.slot === 'number' && typeof m?.n === 'number') emoteCb?.(m.slot, m.n)
   })
 
   const applyKeys = (mask: number): void => {
@@ -328,11 +336,14 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
       roundMins: number
       hostId: string
       isPrivate: boolean
-      players: { forEach(cb: (m: { slot: number; colorSlot: number; isBot: boolean; itTimeMs: number }) => void): void }
+      players: { forEach(cb: (m: { slot: number; colorSlot: number; isBot: boolean; itTimeMs: number; caught: number }) => void): void }
     }
     const scores: LobbyView['scores'] = []
-    s.players.forEach((m) => scores.push({ slot: m.slot, colorSlot: m.colorSlot, isBot: m.isBot, itTimeMs: m.itTimeMs }))
-    scores.sort((a, b) => a.itTimeMs - b.itTimeMs)
+    s.players.forEach((m) =>
+      scores.push({ slot: m.slot, colorSlot: m.colorSlot, isBot: m.isBot, itTimeMs: m.itTimeMs, caught: m.caught ?? 0 }),
+    )
+    // Same ordering as the shared leaderboard(): least It-time, then fewest catches, then slot.
+    scores.sort((a, b) => a.itTimeMs - b.itTimeMs || a.caught - b.caught || a.slot - b.slot)
     lastLobbyView = {
       phase: s.phase,
       humans: s.humans,
@@ -409,6 +420,17 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     },
     onChat(cb): void {
       chatCb = cb
+    },
+
+    sendEmote(n: number): void {
+      try {
+        room.send(MSG.Emote, n)
+      } catch {
+        /* transient disconnects surface via onLeave, not here */
+      }
+    },
+    onEmote(cb): void {
+      emoteCb = cb
     },
 
     setBots(n: number): void {

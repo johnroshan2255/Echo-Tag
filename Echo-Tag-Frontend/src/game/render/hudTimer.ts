@@ -1,4 +1,5 @@
 import { RoundPhase, type World } from '@echo-tag/shared'
+import { drawPixelText } from './pixelText.ts'
 
 /**
  * The round timer: M:SS in hand-authored pixel digits, top-centre, engine-owned DOM.
@@ -16,23 +17,7 @@ const CHALK = '#fff3dc'
 const APRICOT = '#ffc07a'
 const EMBER = '#ff6a5e'
 
-/** 3x5 pixel digit font. One string per row, 'x' lit, '.' empty. Colon is 1 wide. */
-const GLYPHS: Record<string, string[]> = {
-  '0': ['xxx', 'x.x', 'x.x', 'x.x', 'xxx'],
-  '1': ['.x.', 'xx.', '.x.', '.x.', 'xxx'],
-  '2': ['xxx', '..x', 'xxx', 'x..', 'xxx'],
-  '3': ['xxx', '..x', 'xxx', '..x', 'xxx'],
-  '4': ['x.x', 'x.x', 'xxx', '..x', '..x'],
-  '5': ['xxx', 'x..', 'xxx', '..x', 'xxx'],
-  '6': ['xxx', 'x..', 'xxx', 'x.x', 'xxx'],
-  '7': ['xxx', '..x', '.x.', '.x.', '.x.'],
-  '8': ['xxx', 'x.x', 'xxx', 'x.x', 'xxx'],
-  '9': ['xxx', 'x.x', 'xxx', '..x', 'xxx'],
-  ':': ['.', 'x', '.', 'x', '.'],
-}
-
 const PX = 4 // integer pixel scale, same as the tool belt icons
-const GAP = PX // one pixel-cell of air between glyphs
 
 export interface HudTimer {
   /** Cheap per-frame call: redraws only when the displayed second (or colour) changes. */
@@ -59,31 +44,7 @@ export const createHudTimer = (): HudTimer => {
   const draw = (text: string, color: string): void => {
     drawnText = text
     drawnColor = color
-    let w = 0
-    for (const ch of text) w += GLYPHS[ch]![0]!.length * PX + GAP
-    w -= GAP
-    const h = 5 * PX
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w
-      canvas.height = h
-      canvas.style.width = `${w}px`
-      canvas.style.height = `${h}px`
-    }
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.clearRect(0, 0, w, h)
-    ctx.fillStyle = color
-    let ox = 0
-    for (const ch of text) {
-      const rows = GLYPHS[ch]!
-      for (let y = 0; y < 5; y++) {
-        const row = rows[y]!
-        for (let x = 0; x < row.length; x++) {
-          if (row[x] === 'x') ctx.fillRect(ox + x * PX, y * PX, PX, PX)
-        }
-      }
-      ox += rows[0]!.length * PX + GAP
-    }
+    drawPixelText(canvas, text, PX, color)
   }
 
   return {

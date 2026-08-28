@@ -2,6 +2,8 @@ import { Room, type Client } from '@colyseus/core'
 import {
   CHAT_MAX_LEN,
   CHAT_MIN_INTERVAL_MS,
+  EMOTE_COUNT,
+  EMOTE_MIN_INTERVAL_MS,
   LEADERBOARD_MS,
   MAP_COUNT,
   MAX_LOBBY_WAIT_MS,
@@ -126,6 +128,17 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
       this.broadcast(MSG.Chat, { slot, text: clean })
     })
 
+    this.onMessage(MSG.Emote, (client, n: unknown) => {
+      // Pure relay, like chat: a valid index in, {slot, n} out to the room, nothing stored.
+      const slot = this.slotOf.get(client.sessionId)
+      if (slot === undefined) return
+      if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n >= EMOTE_COUNT) return
+      const now = Date.now()
+      if (now < (this.emoteNextAt.get(client.sessionId) ?? 0)) return
+      this.emoteNextAt.set(client.sessionId, now + EMOTE_MIN_INTERVAL_MS)
+      this.broadcast(MSG.Emote, { slot, n })
+    })
+
     this.onMessage(MSG.Bots, (client, n: unknown) => {
       // The host of a private room decides how many bots join at round start — zero is a
       // legitimate choice: four friends, one ghost, nobody artificial.
@@ -215,6 +228,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
 
   override onLeave(client: Client, _code: number): void {
     this.chatNextAt.delete(client.sessionId)
+    this.emoteNextAt.delete(client.sessionId)
     const slot = this.slotOf.get(client.sessionId)
     if (slot === undefined) return
     this.slotOf.delete(client.sessionId)
@@ -311,6 +325,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
   private syncScores(): void {
     this.state.players.forEach((meta) => {
       meta.itTimeMs = Math.round(this.world.itTimeMs[meta.slot]!)
+      meta.caught = this.world.timesCaught[meta.slot]!
     })
   }
 
@@ -319,6 +334,9 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
 
   // Chat rate limit: earliest wall-clock time each client may speak again.
   private chatNextAt = new Map<string, number>()
+
+  // Emote rate limit, same shape.
+  private emoteNextAt = new Map<string, number>()
 
   /** Floor-key spawn positions as flat (x, y) pairs. Fixed within a round; empty in the
    * lobby, where no keys exist yet (the round-setup broadcast delivers the real ones). */

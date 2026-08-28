@@ -24,12 +24,25 @@ const TEXTURE_PX = 8
 /** Particle scale that renders one body cell at world size. Camera handles zoom. */
 export const WORLD_SCALE = CELL_WORLD / TEXTURE_PX
 
+/** Footstep dust pool size (shared ring buffer across all players). */
+export const DUST_MAX = 64
+/** Dizzy stars orbiting a knocked-out body. */
+export const STARS_PER_PLAYER = 3
+/** Particle slice reserved per player for an emote icon (icons stay under this). */
+export const EMOTE_CELLS = 20
+
 export interface BodyLayer {
   container: ParticleContainer
   particles: Particle[]
   /** One flattened ground-shadow particle per player. Allocated FIRST in the container,
    * so every shadow draws under every body — same texture, same draw call. */
   shadows: Particle[]
+  /** Footstep dust ring buffer: under bodies, over shadows. */
+  dust: Particle[]
+  /** KO stars: STARS_PER_PLAYER per player, drawn over bodies. */
+  stars: Particle[]
+  /** Emote icons: EMOTE_CELLS per player, drawn topmost. */
+  emotes: Particle[]
   /** Particles per player. Derived from the template, not hardcoded. */
   stride: number
 }
@@ -75,26 +88,39 @@ export const createBodyLayer = (texture: Texture): BodyLayer => {
     container.addParticle(s)
   }
 
+  // A parked, reusable particle — the shape every pool below starts from.
+  const parked = (tint: number): Particle => {
+    const particle = new Particle({
+      texture,
+      x: -9999,
+      y: -9999,
+      scaleX: WORLD_SCALE,
+      scaleY: WORLD_SCALE,
+      anchorX: 0.5,
+      anchorY: 0.5,
+      tint,
+    })
+    container.addParticle(particle)
+    return particle
+  }
+
+  // Footstep dust: over shadows, under bodies.
+  const dust: Particle[] = []
+  for (let i = 0; i < DUST_MAX; i++) dust.push(parked(0x8a7fae))
+
   const particles: Particle[] = []
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const tint = PLAYER_COLORS[p % PLAYER_COLORS.length]!
-    for (let i = 0; i < stride; i++) {
-      const particle = new Particle({
-        texture,
-        x: -9999, // parked until the first frame places it
-        y: -9999,
-        scaleX: WORLD_SCALE,
-        scaleY: WORLD_SCALE,
-        anchorX: 0.5,
-        anchorY: 0.5,
-        tint,
-      })
-      particles.push(particle)
-      container.addParticle(particle)
-    }
+    for (let i = 0; i < stride; i++) particles.push(parked(tint))
   }
 
-  return { container, particles, shadows, stride }
+  // KO stars and emote icons draw over every body.
+  const stars: Particle[] = []
+  for (let i = 0; i < MAX_PLAYERS * STARS_PER_PLAYER; i++) stars.push(parked(0xe8c56a))
+  const emotes: Particle[] = []
+  for (let i = 0; i < MAX_PLAYERS * EMOTE_CELLS; i++) emotes.push(parked(0xffffff))
+
+  return { container, particles, shadows, dust, stars, emotes, stride }
 }
 
 /** Grid-space to avatar-local world offset. The avatar is anchored at its feet. */

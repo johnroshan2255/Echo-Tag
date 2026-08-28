@@ -294,6 +294,23 @@ describe('scoring', () => {
     assert.equal(w.itTimeMs[2], 0)
   })
 
+  it('breaks equal It-times by who was caught less', () => {
+    const w = playing(4)
+    w.itTimeMs[0] = 1000
+    w.itTimeMs[1] = 1000
+    w.itTimeMs[2] = 1000
+    w.itTimeMs[3] = 0
+    w.timesCaught[0] = 2
+    w.timesCaught[1] = 1
+    w.timesCaught[2] = 2
+
+    const board = leaderboard(w)
+    assert.deepEqual(
+      board.map((r) => r.slot),
+      [3, 1, 0, 2], // slot 1 caught once beats slots 0 and 2 caught twice; 0 beats 2 by slot
+    )
+  })
+
   it('ranks least It-time first, breaking ties by slot', () => {
     const w = playing(4)
     w.itTimeMs[0] = 5000

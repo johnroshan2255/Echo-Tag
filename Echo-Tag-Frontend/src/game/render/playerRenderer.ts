@@ -11,7 +11,8 @@ import {
   type World,
 } from '@echo-tag/shared'
 import { Part, BODY, GRID_GROUND, GRID_H, LEG_TOP } from './templates.ts'
-import { CELL_WORLD, cellOffsetX, cellOffsetY, WORLD_SCALE, type BodyLayer } from './squareBody.ts'
+import { CELL_WORLD, cellOffsetX, cellOffsetY, DUST_MAX, EMOTE_CELLS, STARS_PER_PLAYER, WORLD_SCALE, type BodyLayer } from './squareBody.ts'
+import { EMOTE_ICONS } from './pixelIcons.ts'
 import { armSwing, blink, eyeShift, idleBob, legLift, scatter, squashAcross, stretchAlong } from '../anim/procedural.ts'
 
 /**
@@ -40,6 +41,16 @@ export interface PlayerAnimState {
   facing: Float32Array
   /** Per-player phase offset so twelve avatars never bob or blink in unison. */
   phase: Float32Array
+  /** Footstep dust ring buffer: birth timestamp (-inf when dead), position, drift. */
+  dustBornMs: Float32Array
+  dustX: Float32Array
+  dustY: Float32Array
+  dustDriftX: Float32Array
+  dustDriftY: Float32Array
+  /** Next slot to overwrite in the dust ring. */
+  dustHead: Int32Array
+  /** Per-player distance at the last dust puff, for spawn cadence. */
+  lastDustAt: Float32Array
 }
 
 export const createAnimState = (): PlayerAnimState => {
@@ -50,6 +61,13 @@ export const createAnimState = (): PlayerAnimState => {
     taggedAtMs: new Float32Array(MAX_PLAYERS).fill(-9999),
     facing: new Float32Array(MAX_PLAYERS),
     phase,
+    dustBornMs: new Float32Array(DUST_MAX).fill(-9999),
+    dustX: new Float32Array(DUST_MAX),
+    dustY: new Float32Array(DUST_MAX),
+    dustDriftX: new Float32Array(DUST_MAX),
+    dustDriftY: new Float32Array(DUST_MAX),
+    dustHead: new Int32Array(1),
+    lastDustAt: new Float32Array(MAX_PLAYERS),
   }
 }
 
@@ -104,6 +122,10 @@ export const renderPlayers = (
       }
       layer.shadows[p]!.x = PARKED
       layer.shadows[p]!.y = PARKED
+      for (let s = 0; s < STARS_PER_PLAYER; s++) {
+        layer.stars[p * STARS_PER_PLAYER + s]!.x = PARKED
+        layer.stars[p * STARS_PER_PLAYER + s]!.y = PARKED
+      }
       continue
     }
 
@@ -199,6 +221,19 @@ export const renderPlayers = (
     shadow.scaleY = WORLD_SCALE * 2.4
     shadow.alpha = wraith ? 0.16 : 0.3
 
+    // Footstep dust: running feet kick up a puff every ~30 world units. The wraith
+    // floats and leaves none — its trail is the echo wall.
+    if (moving && !wraith && !ko && dist - anim.lastDustAt[p]! > 30) {
+      anim.lastDustAt[p] = dist
+      const h = anim.dustHead[0]!
+      anim.dustHead[0] = (h + 1) % DUST_MAX
+      anim.dustBornMs[h] = nowMs
+      anim.dustX[h] = wx + (Math.random() - 0.5) * 6
+      anim.dustY[h] = wy + CELL_WORLD * 0.5
+      anim.dustDriftX[h] = -vx * 0.03 + (Math.random() - 0.5) * 8
+      anim.dustDriftY[h] = -vy * 0.03 - 4
+    }
+
     for (let i = 0; i < stride; i++) {
       const particle = particles[base + i]!
       const part = BODY.part[i]!
@@ -285,6 +320,136 @@ export const renderPlayers = (
                 ? 0x7ccb66 // goo drips
                 : darken(flash, 0.62)
             : flash
+    }
+
+    // Dizzy stars over a knocked-out body — the state reads at a glance through the fog.
+    const starBase = p * STARS_PER_PLAYER
+    for (let s = 0; s < STARS_PER_PLAYER; s++) {
+      const star = layer.stars[starBase + s]!
+      if (!ko) {
+        star.x = PARKED
+        star.y = PARKED
+        continue
+      }
+      const a = nowMs * 0.006 + (s * 6.2831853) / STARS_PER_PLAYER
+      star.x = wx + Math.cos(a) * PLAYER_RADIUS * 0.95
+      star.y = wy - PLAYER_RADIUS * 0.35 + Math.sin(a) * PLAYER_RADIUS * 0.3
+      const tw = WORLD_SCALE * (1.7 + 0.6 * Math.sin(nowMs * 0.02 + s * 2.1))
+      star.scaleX = tw
+      star.scaleY = tw
+      star.alpha = 0.9
+    }
+  }
+
+  // Age the dust pool once per frame: shrink, fade, then park.
+  for (let i = 0; i < DUST_MAX; i++) {
+    const life = (nowMs - anim.dustBornMs[i]!) / 450
+    const d = layer.dust[i]!
+    if (life < 0 || life >= 1) {
+      d.x = PARKED
+      d.y = PARKED
+      continue
+    }
+    d.x = anim.dustX[i]! + anim.dustDriftX[i]! * life
+    d.y = anim.dustY[i]! + anim.dustDriftY[i]! * life
+    const s = WORLD_SCALE * 2.4 * (1 - life * 0.55)
+    d.scaleX = s
+    d.scaleY = s
+    d.alpha = 0.38 * (1 - life)
+  }
+}
+
+// ── Emotes ────────────────────────────────────────────────────────────────────
+// A fixed roster of pixel icons (see pixelIcons.EMOTE_ICONS) flashed above a head for a
+// couple of seconds. Rendered as particles from each player's reserved EMOTE_CELLS slice
+// of the body container — same texture, same draw call as everything else.
+
+export interface EmoteState {
+  /** Active icon index per slot, -1 when none. */
+  icon: Int8Array
+  /** When the active emote started, ms. */
+  sinceMs: Float32Array
+}
+
+export const createEmoteState = (): EmoteState => ({
+  icon: new Int8Array(MAX_PLAYERS).fill(-1),
+  sinceMs: new Float32Array(MAX_PLAYERS),
+})
+
+export const triggerEmote = (st: EmoteState, slot: number, n: number, nowMs: number): void => {
+  if (slot < 0 || slot >= MAX_PLAYERS || n < 0 || n >= EMOTE_GRIDS.length) return
+  st.icon[slot] = n
+  st.sinceMs[slot] = nowMs
+}
+
+interface EmoteCell {
+  x: number
+  y: number
+  tint: number
+}
+
+/** Lit cells per icon, centred, in world units — computed once at module load. */
+const EMOTE_GRIDS: EmoteCell[][] = EMOTE_ICONS.map((icon) => {
+  const cells: EmoteCell[] = []
+  const w = icon.rows[0]!.length
+  const h = icon.rows.length
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const c = icon.rows[y]![x]!
+      if (c === '.') continue
+      cells.push({ x: (x - (w - 1) / 2) * CELL_WORLD, y: (y - (h - 1) / 2) * CELL_WORLD, tint: icon.palette[c]! })
+    }
+  }
+  return cells.slice(0, EMOTE_CELLS)
+})
+
+export const renderEmotes = (
+  layer: BodyLayer,
+  world: World,
+  prevX: Float32Array,
+  prevY: Float32Array,
+  alpha: number,
+  st: EmoteState,
+  nowMs: number,
+  showMs: number,
+): void => {
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const base = p * EMOTE_CELLS
+    const icon = st.icon[p]!
+    const age = nowMs - st.sinceMs[p]!
+    const live = icon >= 0 && age < showMs && world.active[p] === 1 && world.hiddenIn[p] === NO_SLOT
+    if (!live) {
+      if (icon >= 0 && age >= showMs) st.icon[p] = -1
+      for (let i = 0; i < EMOTE_CELLS; i++) {
+        const q = layer.emotes[base + i]!
+        q.x = PARKED
+        q.y = PARKED
+      }
+      continue
+    }
+    const wx = prevX[p]! + (world.x[p]! - prevX[p]!) * alpha
+    const wy = prevY[p]! + (world.y[p]! - prevY[p]!) * alpha
+    const pop = Math.min(1, age / 140) // quick pop-in
+    const fade = Math.max(0, Math.min(1, (showMs - age) / 300))
+    const k = 0.8 + 0.35 * pop
+    // Clear of the avatar: the body is GRID_H cells tall from its feet anchor, so the
+    // icon centre floats ~5 cells above the head (plus a rise as it pops in).
+    const oy = -(GRID_H + 5) * CELL_WORLD - pop * 3
+    const cells = EMOTE_GRIDS[icon]!
+    for (let i = 0; i < EMOTE_CELLS; i++) {
+      const q = layer.emotes[base + i]!
+      const c = cells[i]
+      if (!c) {
+        q.x = PARKED
+        q.y = PARKED
+        continue
+      }
+      q.x = wx + c.x * k
+      q.y = wy + oy + c.y * k
+      q.scaleX = WORLD_SCALE * k
+      q.scaleY = WORLD_SCALE * k
+      q.alpha = fade
+      q.tint = c.tint
     }
   }
 }

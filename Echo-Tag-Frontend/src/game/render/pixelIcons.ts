@@ -125,6 +125,62 @@ export const CLOSE_ICON: PixelIcon = {
   ],
 }
 
+/** A speaker with sound waves. */
+export const SOUND_ON_ICON: PixelIcon = {
+  palette: { w: CHALK, d: CHALK_DIM },
+  rows: [
+    '...w...d.',
+    '..ww..d.d',
+    'wwww.d.d.',
+    'wwww.d.d.',
+    'wwww.d.d.',
+    '..ww..d.d',
+    '...w...d.',
+  ],
+}
+
+/** A speaker crossed out. */
+export const SOUND_OFF_ICON: PixelIcon = {
+  palette: { w: CHALK, d: CHALK_DIM },
+  rows: [
+    '...w.d.d.',
+    '..ww..d..',
+    'wwww.d.d.',
+    'wwww.....',
+    'wwww.d.d.',
+    '..ww..d..',
+    '...w.d.d.',
+  ],
+}
+
+/**
+ * The emotes — a fixed roster shared by index (order matters: it is the wire format).
+ * Each stays under 20 lit pixels: an emote renders as particles above a head, and every
+ * player owns a fixed-size slice (see squareBody.ts EMOTE_CELLS).
+ */
+const ROSE = 0xff6f91
+const BUTTER = 0xf2de7c
+
+/** A heart. */
+export const EMOTE_HEART: PixelIcon = {
+  palette: { r: ROSE },
+  rows: ['.r.r.', 'rrrrr', 'rrrrr', '.rrr.', '..r..'],
+}
+
+/** An alert — "the ghost is near!". */
+export const EMOTE_ALERT: PixelIcon = {
+  palette: { y: BUTTER },
+  rows: ['yy', 'yy', 'yy', 'yy', '..', 'yy'],
+}
+
+/** A grin. */
+export const EMOTE_GRIN: PixelIcon = {
+  palette: { w: CHALK },
+  rows: ['w...w', '.....', 'w...w', '.www.'],
+}
+
+export const EMOTE_ICONS: readonly PixelIcon[] = [EMOTE_HEART, EMOTE_ALERT, EMOTE_GRIN]
+
 /** Paints an icon as chunky rects onto a Graphics, centred, `cell` world units per pixel. */
 export const paintIcon = (g: Graphics, icon: PixelIcon, cell: number): void => {
   const w = icon.rows[0]!.length

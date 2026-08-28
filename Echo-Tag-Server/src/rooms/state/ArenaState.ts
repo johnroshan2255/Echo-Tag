@@ -18,6 +18,8 @@ export const PlayerMeta = schema(
     isBot: 'boolean',
     /** Milliseconds spent as It — the score. Patched once a second, not per tick. */
     itTimeMs: 'uint32',
+    /** Times caught this round — the score tie-breaker (fewer is better). */
+    caught: 'uint8',
   },
   'PlayerMeta',
 )
@@ -66,5 +68,6 @@ export const createPlayerMeta = (slot: number, colorSlot: number, isBot: boolean
   m.colorSlot = colorSlot
   m.isBot = isBot
   m.itTimeMs = 0
+  m.caught = 0
   return m
 }

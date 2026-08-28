@@ -15,6 +15,12 @@ export const ROUND_MINS_MAX = 12
 // numbers — one source of truth, so a tuning change cannot silently desync the two sides.
 export const CHAT_MIN_INTERVAL_MS = 600
 export const CHAT_MAX_LEN = 120
+
+// Emotes: a fixed set of pixel icons a player can flash above their head. The server
+// relays only a valid index, rate-limited per client; the icons themselves live client-side.
+export const EMOTE_COUNT = 3
+export const EMOTE_MIN_INTERVAL_MS = 900
+export const EMOTE_SHOW_MS = 1800
 export const COUNTDOWN_MS = 1_500 // "3..2..1" before inputs unlock
 export const LEADERBOARD_MS = 8_000 // then auto-requeue
 export const MAX_LOBBY_WAIT_MS = 2_000 // hard cap before bot-fill (Tech doc §7)

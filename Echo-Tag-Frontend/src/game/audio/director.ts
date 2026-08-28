@@ -52,7 +52,10 @@ export const createAudioDirector = (): AudioDirector => {
   let muffled = false
   let groanInMs = 20_000 + Math.random() * 25_000
 
-  const onVisibility = (): void => setMuted(engine, document.hidden)
+  // External mute (the player's mute button, ad breaks) is sticky: a tab-visibility
+  // change must never un-mute someone who chose silence.
+  let externalMuted = false
+  const onVisibility = (): void => setMuted(engine, document.hidden || externalMuted)
   document.addEventListener('visibilitychange', onVisibility)
 
   return {
@@ -180,7 +183,8 @@ export const createAudioDirector = (): AudioDirector => {
     },
 
     setMuted(muted: boolean): void {
-      setMuted(engine, muted)
+      externalMuted = muted
+      setMuted(engine, muted || document.hidden)
     },
 
     destroy(): void {
