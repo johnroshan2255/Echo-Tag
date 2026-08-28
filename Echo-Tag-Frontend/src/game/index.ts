@@ -14,6 +14,7 @@ import {
   createWorld,
   enterPhase,
   enterTurning,
+  leaderboard,
   queueToolUse,
   setMap,
   stepWorld,
@@ -34,6 +35,7 @@ import { renderDoors } from './render/doors.ts'
 import { renderEchoes } from './render/echoRenderer.ts'
 import { renderFog } from './render/fog.ts'
 import { renderFx, renderLantern } from './render/fx.ts'
+import { createHudTimer } from './render/hudTimer.ts'
 import { renderIndicator } from './render/indicator.ts'
 import { renderInterior } from './render/interior.ts'
 import { renderTerror } from './render/terror.ts'
@@ -67,6 +69,7 @@ const TRANSFORM_TICKS = Math.ceil(TRANSFORM_DELAY_MS / TICK_MS)
  *   ?at=tx,ty  teleport the local player to a tile after spawn
  *   ?turn      stage a metamorphosis next to the local player (review the effect in crops)
  *   ?turn=me   stage the local player's OWN metamorphosis (review the terror overlay)
+ *   ?round=S   bots mode: shorten the round to S seconds — review the results board
  * They exist because fog (correctly) hides everything worth reviewing from a screenshot.
  */
 const devParams = new URLSearchParams(globalThis.location?.search ?? '')
@@ -75,6 +78,7 @@ const DEV_MAP = Number(devParams.get('map') ?? -1)
 const DEV_AT = devParams.get('at')?.split(',').map(Number)
 const DEV_TURN = devParams.has('turn')
 const DEV_TURN_ME = devParams.get('turn') === 'me'
+const DEV_ROUND_S = Number(devParams.get('round') ?? 0)
 
 export interface GameHandle {
   destroy(): void
@@ -122,9 +126,37 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   // Created here — inside the Play-click call stack — so the AudioContext starts unlocked.
   const audio = createAudioDirector()
 
+  // ── World: local simulation, or a mirror of the server's ──
+  const net = mode.kind === 'bots' ? null : await (await import('./net/room.ts')).connect(
+    mode.kind === 'quick'
+      ? { kind: 'quick' }
+      : mode.kind === 'host'
+        ? { kind: 'host', code: (await import('./net/room.ts')).makeCode() }
+        : { kind: 'code', code: mode.code },
+  )
+
+  let mapIndex = DEV_MAP >= 0 ? DEV_MAP : 0
+  const world: World = net ? net.world : createWorld(0xec07a6, mapIndex)
+  let mySlot = net ? net.mySlot : LOCAL_SLOT
+
+  if (!net) {
+    for (let i = 0; i < MAX_PLAYERS; i++) addPlayer(world, i !== LOCAL_SLOT)
+    if (DEV_ROUND_S > 0) world.roundDurationMs = DEV_ROUND_S * 1000
+    enterPhase(world, RoundPhase.Countdown)
+    if (DEV_AT && DEV_AT.length === 2) {
+      world.x[LOCAL_SLOT] = (DEV_AT[0]! + 0.5) * 80
+      world.y[LOCAL_SLOT] = (DEV_AT[1]! + 0.5) * 80
+    }
+  }
+  setLayersMap(layers, world.map)
+  snapCamera(cam, world.x[mySlot]!, world.y[mySlot]!)
+
   // ── The tool belt: two slots, top-right, engine-owned DOM (never per-frame React) ──
   // Tap an icon (or press 1 / 2) to use that tool at your feet. The server validates
   // everything; locally the request is queued into the same deterministic sim path.
+  // Deliberately built AFTER the connect resolves: earlier, a tap during the pending
+  // handshake read the not-yet-initialised `net` (a TDZ crash), and a failed connect
+  // left the toolbar and its keydown listener stacking up under the RETRY button.
   const useTool = (k: number): void => {
     if (net) net.useTool(k)
     else queueToolUse(world, LOCAL_SLOT, k)
@@ -179,30 +211,6 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   }
   addEventListener('keydown', onToolKey)
 
-  // ── World: local simulation, or a mirror of the server's ──
-  const net = mode.kind === 'bots' ? null : await (await import('./net/room.ts')).connect(
-    mode.kind === 'quick'
-      ? { kind: 'quick' }
-      : mode.kind === 'host'
-        ? { kind: 'host', code: (await import('./net/room.ts')).makeCode() }
-        : { kind: 'code', code: mode.code },
-  )
-
-  let mapIndex = DEV_MAP >= 0 ? DEV_MAP : 0
-  const world: World = net ? net.world : createWorld(0xec07a6, mapIndex)
-  let mySlot = net ? net.mySlot : LOCAL_SLOT
-
-  if (!net) {
-    for (let i = 0; i < MAX_PLAYERS; i++) addPlayer(world, i !== LOCAL_SLOT)
-    enterPhase(world, RoundPhase.Countdown)
-    if (DEV_AT && DEV_AT.length === 2) {
-      world.x[LOCAL_SLOT] = (DEV_AT[0]! + 0.5) * 80
-      world.y[LOCAL_SLOT] = (DEV_AT[1]! + 0.5) * 80
-    }
-  }
-  setLayersMap(layers, world.map)
-  snapCamera(cam, world.x[mySlot]!, world.y[mySlot]!)
-
   const inputs = new Uint8Array(MAX_PLAYERS)
 
   // Previous-tick positions for render interpolation. In net mode the driver owns them
@@ -217,6 +225,19 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   prevBodyX.set(world.bodyX)
   prevBodyY.set(world.bodyY)
 
+  // The results board's view of the local bots-mode world — the shape the server sends,
+  // built here from the shared leaderboard() ranking instead.
+  const localResultsView = (): import('./net/room.ts').LobbyView => ({
+    phase: world.phase,
+    humans: 1,
+    bots: world.playerCount - 1,
+    roundMins: Math.round(world.roundDurationMs / 60_000),
+    isHost: false,
+    isPrivate: false,
+    code: '',
+    scores: leaderboard(world),
+  })
+
   // Net wiring: lobby overlay, tag stings, per-round camera snaps, and the room chat —
   // chat is coop-only by construction: it exists only where there is a room to relay it.
   let lobbyUi: import('./net/lobbyUi.ts').LobbyUi | null = null
@@ -227,6 +248,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     lobbyUi = createLobbyUi(
       () => net.start(),
       (n) => net.setBots(n),
+      (n) => net.setRoundMins(n),
     )
     const { createChatUi } = await import('./chat.ts')
     chatUi = createChatUi({
@@ -259,7 +281,17 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       setLayersMap(layers, world.map)
       snapCamera(cam, world.x[mySlot]!, world.y[mySlot]!)
     })
+  } else {
+    // Offline gets the same results board as multiplayer, driven from the local world.
+    // Created hidden: the first update carries the Countdown phase.
+    const { createLobbyUi } = await import('./net/lobbyUi.ts')
+    lobbyUi = createLobbyUi(() => {})
+    lobbyUi.update(localResultsView())
   }
+
+  // The round clock, in the same pixel register as the tool belt. Created after the
+  // connect so a failed join never leaves it behind.
+  const hudTimer = createHudTimer()
 
   // ── Viewport ──
   let viewW = canvas.width
@@ -277,7 +309,19 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     resizeCamera(cam, viewW, viewH)
   }
   relayout()
-  addEventListener('resize', relayout, { passive: true })
+  // Rotation support: the game plays in portrait AND landscape, re-fitting live when the
+  // phone turns. iOS Safari can fire resize/orientationchange while innerWidth/innerHeight
+  // still describe the OLD orientation, so measure immediately and once more after the
+  // rotation settles. relayout() is idempotent — a no-change call is a few comparisons.
+  let settleTimer: ReturnType<typeof setTimeout> | undefined
+  const relayoutSettled = (): void => {
+    relayout()
+    clearTimeout(settleTimer)
+    settleTimer = setTimeout(relayout, 300)
+  }
+  addEventListener('resize', relayoutSettled, { passive: true })
+  addEventListener('orientationchange', relayoutSettled, { passive: true })
+  globalThis.visualViewport?.addEventListener('resize', relayoutSettled, { passive: true })
 
   // Tab hidden = play stopped, for the platform's session accounting. The next input after
   // returning re-fires gameplayStart via localInput().
@@ -288,6 +332,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
 
   // ── Simulation step ──
   let simTick = 0
+  let resultsShown = false
   let devTurnArmed = DEV_TURN && !net
   const stepNet = (): void => {
     // Net mode: the fixed tick only sends input (with prediction inside the driver).
@@ -325,8 +370,15 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       void pokiCommercialBreak(() => audio.setMuted(true), () => audio.setMuted(false))
     }
 
-    // Round over: rotate to the next map and go again. (Phase 7 puts the leaderboard here.)
-    if (world.phase === RoundPhase.Leaderboard) {
+    // Round over: show the results board for the leaderboard window. The sim itself
+    // moves Leaderboard → Lobby after LEADERBOARD_MS; that is the cue to rotate maps
+    // and go again. Scores are captured at entry — the next Countdown zeroes them.
+    if (world.phase === RoundPhase.Leaderboard && !resultsShown) {
+      resultsShown = true
+      lobbyUi?.update(localResultsView())
+    }
+    if (world.phase === RoundPhase.Lobby) {
+      resultsShown = false
       mapIndex = (mapIndex + 1) % MAP_COUNT
       setMap(world, mapIndex)
       enterPhase(world, RoundPhase.Countdown)
@@ -336,6 +388,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       prevBodyX.set(world.bodyX)
       prevBodyY.set(world.bodyY)
       snapCamera(cam, world.x[LOCAL_SLOT]!, world.y[LOCAL_SLOT]!)
+      lobbyUi?.update(localResultsView()) // phase is Countdown now — hides the board
     }
     simTick++
   }
@@ -344,7 +397,10 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   let raf = 0
   let last = 0
   let frames = 0
-  let hiddenAtMs = -1 // when the local player slipped into a wardrobe, for the door creak
+  // Who most recently went through a metamorphosis. The crowning slam is reserved for a
+  // crowning that FOLLOWED one — without this, the randomly-chosen starting ghost got the
+  // full slam at every round start (enterPhase(Playing) also stamps itSinceTick).
+  let lastTurnedSlot = NO_SLOT
 
   const frame = (now: number): void => {
     // The first frame's delta spans renderer init and shader compile; it only sets the clock.
@@ -378,11 +434,13 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       turning !== NO_SLOT
         ? 1 - Math.min(1, Math.max(0, (world.turningUntilTick - world.tick) / TRANSFORM_TICKS))
         : 0
+    if (turning !== NO_SLOT) lastTurnedSlot = turning
+    if (world.phase !== RoundPhase.Playing) lastTurnedSlot = NO_SLOT
     let terror = 0
     if (world.phase === RoundPhase.Playing) {
       if (turning === mySlot && world.active[mySlot] === 1) {
         terror = 0.35 + 0.65 * turnProgress
-      } else if (world.itSlot === mySlot) {
+      } else if (world.itSlot === mySlot && lastTurnedSlot === mySlot) {
         const sinceCrown = world.tick - world.itSinceTick
         if (sinceCrown < 14) terror = 1 - sinceCrown / 14 // the crowning slam, decaying
       }
@@ -400,6 +458,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     if (layers.ambience.flockJustStarted) audio.flutter()
     renderTools(layers.tools, world, now)
     refreshToolbar()
+    hudTimer.update(world, now)
     // The metamorphosis wreath: bats whirl around whoever is turning into the ghost.
     if (turning !== NO_SLOT && world.active[turning] === 1) {
       const tx = prevX[turning]! + (world.x[turning]! - prevX[turning]!) * a
@@ -418,12 +477,14 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     if (!DEV_NOFOG) renderFog(layers.fog, cam, lx, ly, viewW, viewH, hidden ? HIDDEN_VISION_SCALE : 1)
     else layers.fog.sprite.visible = false
     // Inside the wardrobe you are blind: the interior overlay covers the whole view, so
-    // you genuinely cannot tell whether the ghost is still out there. Time from entry is
-    // tracked here (the mirror does not carry hiddenSinceTick) to creak the door open
-    // toward the eviction.
-    if (hidden && hiddenAtMs < 0) hiddenAtMs = now
-    if (!hidden) hiddenAtMs = -1
-    renderInterior(layers.interior, hidden, hidden ? (now - hiddenAtMs) / WARDROBE_MAX_HIDE_MS : 0, now, viewW, viewH)
+    // you genuinely cannot tell whether the ghost is still out there. The creak toward
+    // eviction runs on SIM ticks (the sim tracks hiddenSinceTick locally; the net mirror
+    // stamps it on the hide transition), so it agrees with the server's eviction clock
+    // even in a throttled background tab.
+    const hiddenProgress = hidden
+      ? ((world.tick - world.hiddenSinceTick[mySlot]!) * TICK_MS) / WARDROBE_MAX_HIDE_MS
+      : 0
+    renderInterior(layers.interior, hidden, hiddenProgress, now, viewW, viewH)
     renderIndicator(layers.indicator, world, mySlot, cam, viewW, viewH, now)
 
     renderer.render(layers.stage)
@@ -463,9 +524,13 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   return {
     destroy(): void {
       cancelAnimationFrame(raf)
-      removeEventListener('resize', relayout)
+      clearTimeout(settleTimer)
+      removeEventListener('resize', relayoutSettled)
+      removeEventListener('orientationchange', relayoutSettled)
+      globalThis.visualViewport?.removeEventListener('resize', relayoutSettled)
       removeEventListener('keydown', onToolKey)
       toolbar.remove()
+      hudTimer.destroy()
       document.removeEventListener('visibilitychange', onVis)
       keyboard.destroy()
       joystick.destroy()

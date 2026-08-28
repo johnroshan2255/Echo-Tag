@@ -1,5 +1,7 @@
 import { Room, type Client } from '@colyseus/core'
 import {
+  CHAT_MAX_LEN,
+  CHAT_MIN_INTERVAL_MS,
   LEADERBOARD_MS,
   MAP_COUNT,
   MAX_LOBBY_WAIT_MS,
@@ -7,6 +9,8 @@ import {
   MAX_TOOL_SPAWNS,
   MIN_PLAYERS,
   MSG,
+  ROUND_MINS_MAX,
+  ROUND_MINS_MIN,
   RoundPhase,
   SNAPSHOT_MAX_BYTES,
   TICK_MS,
@@ -75,8 +79,11 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
   private lobbyDeadline = Number.POSITIVE_INFINITY
   private leaderboardUntil = 0
   private scorePatchAcc = 0
-  /** Wall-clock time at which an empty room finally disposes. Infinity while occupied. */
-  private emptyAt = Number.POSITIVE_INFINITY
+  /** Wall-clock time at which an empty room finally disposes. Infinity while occupied.
+   * Armed from birth (onCreate): a room whose reservation is never consumed — the client
+   * dropped mid-handshake, or onJoin threw — has no onLeave to arm it, and with
+   * autoDispose off it would otherwise tick at 20Hz forever. onJoin lifts it. */
+  private emptyAt = Date.now() + EMPTY_ROOM_GRACE_MS
 
   override onCreate(options: JoinOptions): void {
     this.state.isPrivate = Boolean(options.code)
@@ -84,6 +91,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     // by code. Privacy here comes from filterBy(['code']) pool separation — quick-match
     // clients all carry code '' and can never be routed into a room keyed by a real code.
     this.state.mapIndex = this.world.map.index
+    this.state.roundMins = Math.round(this.world.roundDurationMs / 60_000)
 
     this.onMessage(MSG.Input, (client, data: ArrayBuffer | Uint8Array) => {
       const slot = this.slotOf.get(client.sessionId)
@@ -112,9 +120,9 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
       if (slot === undefined || typeof text !== 'string') return
       const now = Date.now()
       if (now < (this.chatNextAt.get(client.sessionId) ?? 0)) return
-      const clean = text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 120)
+      const clean = text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, CHAT_MAX_LEN)
       if (clean.length === 0) return
-      this.chatNextAt.set(client.sessionId, now + 600)
+      this.chatNextAt.set(client.sessionId, now + CHAT_MIN_INTERVAL_MS)
       this.broadcast(MSG.Chat, { slot, text: clean })
     })
 
@@ -127,12 +135,25 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
       this.state.bots = Math.max(0, Math.min(MAX_PLAYERS - this.state.humans, n))
     })
 
+    this.onMessage(MSG.Mins, (client, n: unknown) => {
+      // The host of a private room picks the round length, in the lobby only — changing
+      // it mid-round would move the finish line under everyone's feet.
+      if (client.sessionId !== this.state.hostId) return
+      if (!this.state.isPrivate || this.world.phase !== RoundPhase.Lobby) return
+      if (typeof n !== 'number' || !Number.isInteger(n)) return
+      const mins = Math.max(ROUND_MINS_MIN, Math.min(ROUND_MINS_MAX, n))
+      this.state.roundMins = mins
+      this.world.roundDurationMs = mins * 60_000
+    })
+
     this.onMessage(MSG.Go, (client) => {
       // Only the host starts a private lobby; public lobbies start themselves.
       if (client.sessionId !== this.state.hostId) return
       if (this.world.phase !== RoundPhase.Lobby) return
-      // A private round needs at least two humans — a tag game against nobody is a walk.
-      if (this.state.isPrivate && this.state.humans < 2) return
+      // A private round needs at least two players. Bots count: a solo host who dialed
+      // bots up is asking for a warm-up round, and the +/- control they were shown must
+      // be able to take effect. A tag game against literally nobody is still refused.
+      if (this.state.isPrivate && this.state.humans + this.state.bots < 2) return
       this.startRound()
     })
 
@@ -266,6 +287,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
 
     if (ev.roundEnded) {
       this.leaderboardUntil = Date.now() + LEADERBOARD_MS
+      this.syncScores() // the results screen must open with the FINAL scores, not ~1s-stale ones
     }
     if (w.phase === RoundPhase.Leaderboard && Date.now() >= this.leaderboardUntil) {
       this.nextRound()
@@ -278,13 +300,18 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     this.scorePatchAcc += TICK_MS
     if (this.scorePatchAcc >= 1000) {
       this.scorePatchAcc = 0
-      this.state.players.forEach((meta) => {
-        meta.itTimeMs = Math.round(w.itTimeMs[meta.slot]!)
-      })
+      this.syncScores()
     }
 
     const len = writeSnapshot(w, w.map.index, this.snapshotView)
     this.broadcast(MSG.Snapshot, new Uint8Array(this.snapshotBuf, 0, len))
+  }
+
+  /** Copies the sim's It-times into the synced state the lobby/results UI reads. */
+  private syncScores(): void {
+    this.state.players.forEach((meta) => {
+      meta.itTimeMs = Math.round(this.world.itTimeMs[meta.slot]!)
+    })
   }
 
   // Humans' most recent input bytes, kept apart so the bot driver can't clobber them.
@@ -321,6 +348,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     client.send(MSG.Welcome, {
       slot,
       mapIndex: this.world.map.index,
+      roundMs: this.world.roundDurationMs,
       tick: this.world.tick,
       keys: packKeys(this.world, slot),
       keySpawns: this.keySpawns(),
@@ -335,6 +363,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
       const client = this.clients.find((c) => c.sessionId === sessionId)
       client?.send(MSG.Round, {
         mapIndex: this.world.map.index,
+        roundMs: this.world.roundDurationMs,
         keys: packKeys(this.world, slot),
         keySpawns: this.keySpawns(),
         toolSpawns: this.toolSpawns(),

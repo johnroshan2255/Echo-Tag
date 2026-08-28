@@ -4,12 +4,13 @@ import {
   NO_SLOT,
   PLAYER_COLORS,
   PLAYER_RADIUS,
+  PLAYER_SPEED,
   TAG_IMMUNITY_MS,
   TICK_MS,
   TRANSFORM_DELAY_MS,
   type World,
 } from '@echo-tag/shared'
-import { Part, BODY } from './templates.ts'
+import { Part, BODY, GRID_GROUND, GRID_H, LEG_TOP } from './templates.ts'
 import { CELL_WORLD, cellOffsetX, cellOffsetY, WORLD_SCALE, type BodyLayer } from './squareBody.ts'
 import { armSwing, blink, eyeShift, idleBob, legLift, scatter, squashAcross, stretchAlong } from '../anim/procedural.ts'
 
@@ -60,8 +61,23 @@ const darken = (color: number, f: number): number => {
   return ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff)
 }
 
+/** Mixes a toward b by t — the ghost's body sinks toward dusk but keeps a trace of who it was. */
+const mix = (a: number, b: number, t: number): number => {
+  const r = ((a >> 16) & 0xff) + (((b >> 16) & 0xff) - ((a >> 16) & 0xff)) * t
+  const g = ((a >> 8) & 0xff) + (((b >> 8) & 0xff) - ((a >> 8) & 0xff)) * t
+  const bl = (a & 0xff) + ((b & 0xff) - (a & 0xff)) * t
+  return ((r & 0xff) << 16) | ((g & 0xff) << 8) | (bl & 0xff)
+}
+
 const PARKED = -9999
 const TRANSFORM_TICKS = Math.ceil(TRANSFORM_DELAY_MS / TICK_MS)
+/** The wraith's body colour: near-dusk, one step lighter than the arena floor. */
+const WRAITH_DUSK = 0x241b38
+/** The wraith's eyes: embers. The only warm light on the coldest thing in the room. */
+const WRAITH_EYE = 0xff5040
+/** Terror radius: closer than this to the ghost, a human's eyes go wide. */
+const FEAR_RADIUS_SQ = (PLAYER_RADIUS * 8) ** 2
+const LEG_ROWS = GRID_H - 1 - LEG_TOP
 
 export const renderPlayers = (
   layer: BodyLayer,
@@ -86,6 +102,8 @@ export const renderPlayers = (
         particle.x = PARKED
         particle.y = PARKED
       }
+      layer.shadows[p]!.x = PARKED
+      layer.shadows[p]!.y = PARKED
       continue
     }
 
@@ -135,6 +153,21 @@ export const renderPlayers = (
     const bob = moving ? 0 : idleBob(nowMs, phase)
     const scatterAge = (nowMs - anim.taggedAtMs[p]!) / 1000
     const isIt = p === itSlot
+    // The ghost is a WRAITH, not a person with an outline: it hovers, its legs taper into
+    // a wisp tail, its body sinks toward dusk and its eyes burn. The white edge cells and
+    // the double halo stay — marking must survive a crowd — but the silhouette itself now
+    // says what it is.
+    const wraith = isIt
+    const hover = wraith ? 3 + Math.sin(nowMs * 0.003 + phase) * 1.8 : 0
+    // Fear: eyes go wide near the ghost. Cheap, readable, and it doubles as peripheral
+    // information — your own avatar knows before you do.
+    const fear =
+      !isIt &&
+      itSlot !== NO_SLOT &&
+      world.active[itSlot] === 1 &&
+      (world.x[itSlot]! - wx) ** 2 + (world.y[itSlot]! - wy) ** 2 < FEAR_RADIUS_SQ
+    // Lean into travel: the whole body shears toward the heading, feet anchored.
+    const lean = moving && !wraith ? Math.cos(facing) * Math.min(speed / PLAYER_SPEED, 1) * 1.4 : 0
     // Out cold on the floor: the body reads as a collapsed pile, eyes shut — the ghost
     // must be able to SPOT a faint through the fog, and the victim must see why their
     // input is dead. Mirrored in netplay via the snapshot's unconscious flag.
@@ -142,6 +175,8 @@ export const renderPlayers = (
     // Goo-slowed: the silhouette's edge drips green so everyone can see who got got.
     const slowed = world.tick < world.slowedUntilTick[p]!
     const color = PLAYER_COLORS[world.colorSlot[p]! % PLAYER_COLORS.length]!
+    // The wraith keeps a trace of its player colour, sunk deep toward dusk.
+    const bodyColor = wraith ? mix(color, WRAITH_DUSK, 0.72) : color
 
     // A newly-tagged It flashes toward white while immune, so the handover is unmissable.
     // A TURNING player flickers toward the ghost's white too — slowly at the touch,
@@ -149,16 +184,31 @@ export const renderPlayers = (
     const immuneLeft = (world.immuneUntilTick[p]! - world.tick) * 50
     const flashing = (isIt && immuneLeft > 0) || turning
     const flashHz = turning ? 0.008 + turnProgress * turnProgress * 0.05 : 0.03
-    const flash = flashing ? (Math.sin(nowMs * flashHz) > 0 ? IT_RING_COLOR : color) : color
+    const flash = flashing ? (Math.sin(nowMs * flashHz) > 0 ? IT_RING_COLOR : bodyColor) : bodyColor
 
-    const blinkScale = blink(nowMs, phase)
+    // Wide fearful eyes never blink; neither do the wraith's embers.
+    const blinkScale = wraith || fear ? 1 : blink(nowMs, phase)
+
+    // Ground shadow: a flattened dark square at the feet. The wraith's is smaller and
+    // fainter — a floating thing barely touches the floor; a collapsed body presses wide.
+    const shadow = layer.shadows[p]!
+    const shadowW = ko ? 15 : wraith ? 9 : 12
+    shadow.x = wx
+    shadow.y = wy + CELL_WORLD * 0.4
+    shadow.scaleX = WORLD_SCALE * shadowW
+    shadow.scaleY = WORLD_SCALE * 2.4
+    shadow.alpha = wraith ? 0.16 : 0.3
 
     for (let i = 0; i < stride; i++) {
       const particle = particles[base + i]!
       const part = BODY.part[i]!
 
+      const gy = BODY.gy[i]!
       let ox = cellOffsetX(BODY.gx[i]!)
-      let oy = cellOffsetY(BODY.gy[i]!) + bob * CELL_WORLD
+      let oy = cellOffsetY(gy) + bob * CELL_WORLD
+
+      // Lean into travel: feet stay planted, the head shifts up to ~1.4 cells forward.
+      if (lean !== 0) ox += lean * ((GRID_GROUND - gy) / GRID_H) * CELL_WORLD
 
       // Collapsed: the whole grid flattens toward the ground and spreads slightly.
       if (ko) {
@@ -166,19 +216,43 @@ export const renderPlayers = (
         oy = oy * 0.35 + PLAYER_RADIUS * 0.55
       }
 
-      // Limb animation. Legs lift on alternate phases; arms counter-swing.
-      if (part === Part.LegL) oy += legLift(dist, 1) * CELL_WORLD
-      else if (part === Part.LegR) oy += legLift(dist, -1) * CELL_WORLD
-      else if (part === Part.ArmL) oy += armSwing(dist, 1) * CELL_WORLD
-      else if (part === Part.ArmR) oy += armSwing(dist, -1) * CELL_WORLD
-
       let cellScaleX = scaleX
       let cellScaleY = scaleY
+
+      // Limb animation. Legs lift on alternate phases; arms counter-swing. The wraith
+      // does neither: it hovers, its legs melting into a wisp tail, arms adrift.
+      if (wraith && !ko) {
+        oy -= hover
+        if (part === Part.LegL || part === Part.LegR) {
+          const taper = (gy - LEG_TOP) / LEG_ROWS // 0 at the hips → 1 at the feet
+          ox *= 1 - taper * 0.55
+          cellScaleX *= 1 - taper * 0.4
+          cellScaleY *= 1 - taper * 0.3
+          oy -= taper * 0.6 * CELL_WORLD
+        } else if (part === Part.ArmL) {
+          oy += Math.sin(nowMs * 0.0024 + phase) * 0.5 * CELL_WORLD
+        } else if (part === Part.ArmR) {
+          oy += Math.sin(nowMs * 0.0024 + phase + 2.6) * 0.5 * CELL_WORLD
+        }
+      } else {
+        if (part === Part.LegL) oy += legLift(dist, 1) * CELL_WORLD
+        else if (part === Part.LegR) oy += legLift(dist, -1) * CELL_WORLD
+        else if (part === Part.ArmL) oy += armSwing(dist, 1) * CELL_WORLD
+        else if (part === Part.ArmR) oy += armSwing(dist, -1) * CELL_WORLD
+      }
 
       if (part === Part.Eye) {
         ox += eyeShift(facing, 0) * CELL_WORLD
         oy += eyeShift(facing, 1) * CELL_WORLD * 0.5
         cellScaleY *= ko ? 0.12 : blinkScale // eyes shut while out cold
+        // Ember eyes on the wraith; wide fearful eyes near it.
+        if (wraith) {
+          cellScaleX *= 1.55
+          cellScaleY *= 1.55
+        } else if (fear && !ko) {
+          cellScaleX *= 1.35
+          cellScaleY *= 1.35
+        }
       }
 
       // Tag burst: every square is an independent object, so scattering them outward and
@@ -201,7 +275,9 @@ export const renderPlayers = (
       // so the marking survives even when the halo behind them is lost in a crowd.
       particle.tint =
         part === Part.Eye
-          ? 0x101018
+          ? wraith
+            ? WRAITH_EYE // embers — the only warm light on the coldest thing in the room
+            : 0x101018
           : BODY.edge[i] === 1
             ? isIt
               ? IT_RING_COLOR

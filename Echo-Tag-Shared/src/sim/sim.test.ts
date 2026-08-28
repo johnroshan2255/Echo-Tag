@@ -331,6 +331,23 @@ describe('round lifecycle', () => {
     assert.equal(w.phase, RoundPhase.Leaderboard)
   })
 
+  it('honours a host-chosen round duration', () => {
+    const w = playing(4)
+    w.roundDurationMs = 6 * 60_000 // the host asked for a 6-minute round
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    const expected = w.roundDurationMs / TICK_MS
+
+    let ticks = 0
+    while (w.phase === RoundPhase.Playing) {
+      stepWorld(w, inputs)
+      ticks++
+      assert.ok(ticks <= expected + 1, 'round overran its chosen duration')
+    }
+
+    assert.equal(ticks, expected)
+    assert.equal(w.phase, RoundPhase.Leaderboard)
+  })
+
   it('freezes everyone when the round ends', () => {
     const w = playing(4)
     const inputs = new Uint8Array(MAX_PLAYERS)

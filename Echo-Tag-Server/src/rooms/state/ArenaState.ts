@@ -37,6 +37,9 @@ export const ArenaState = schema(
     /** Private rooms: how many bots the host wants at round start (0 = humans only).
      * Public rooms ignore this and fill to MIN_PLAYERS as always. */
     bots: 'uint8',
+    /** Round length in whole minutes. Private-room hosts may change it; public rooms
+     * keep the default. */
+    roundMins: 'uint8',
     players: { map: PlayerMeta },
   },
   'ArenaState',
@@ -52,6 +55,7 @@ export const createArenaState = (): ArenaStateT => {
   s.isPrivate = false
   s.humans = 0
   s.bots = 0
+  s.roundMins = 3
   s.players = new MapSchema()
   return s
 }

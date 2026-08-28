@@ -87,7 +87,7 @@ export const createJoystick = (): Joystick => {
     if (touchId !== -1) return // one thumb steers; a second is ignored
     const touch = e.changedTouches[0]!
     const t = e.target as HTMLElement | null
-    if (t?.closest('button, input, a, #lobby, #menu')) return // real UI wins
+    if (t?.closest('button, input, a, #lobby, #menu, #chat-panel, #toolbar')) return // real UI wins
 
     touchId = touch.identifier
     const margin = EDGE_PX + BASE_PX / 2

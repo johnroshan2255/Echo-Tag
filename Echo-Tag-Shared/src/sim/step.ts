@@ -2,7 +2,6 @@ import {
   COUNTDOWN_MS,
   LEADERBOARD_MS,
   MAX_PLAYERS,
-  ROUND_DURATION_MS,
   TICK_MS,
 } from '../constants.ts'
 import { NO_SLOT, RoundPhase, type Slot, type StepEvents } from '../types.ts'
@@ -101,7 +100,7 @@ export const stepWorld = (w: World, inputs: Uint8Array): StepEvents => {
   }
 
   w.clockMs += TICK_MS
-  if (w.clockMs >= ROUND_DURATION_MS) {
+  if (w.clockMs >= w.roundDurationMs) {
     ev.roundEnded = true
     enterPhase(w, RoundPhase.Leaderboard)
   }

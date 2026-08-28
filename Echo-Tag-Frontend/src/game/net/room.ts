@@ -45,6 +45,8 @@ export interface LobbyView {
   humans: number
   /** Bots the host has asked for (private rooms; public rooms auto-fill regardless). */
   bots: number
+  /** Round length in whole minutes (private-room hosts may change it). */
+  roundMins: number
   isHost: boolean
   isPrivate: boolean
   code: string
@@ -70,6 +72,8 @@ export interface NetGame {
   onChat(cb: (slot: number, text: string) => void): void
   /** Host only, private lobbies: how many bots should join at round start. */
   setBots(n: number): void
+  /** Host only, private lobbies: round length in whole minutes (clamped server-side). */
+  setRoundMins(n: number): void
   onLobby(cb: (view: LobbyView) => void): void
   onTag(cb: (from: number, to: number) => void): void
   onRoundSetup(cb: () => void): void
@@ -134,6 +138,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
   let chatCb: ((slot: number, text: string) => void) | null = null
   let lastLobbyView: LobbyView | null = null
   let prevIt = NO_SLOT
+  let firstSnapshot = true
 
   room.onMessage(MSG.Chat, (m: { slot: number; text: string }) => {
     if (typeof m?.slot === 'number' && typeof m?.text === 'string') chatCb?.(m.slot, m.text)
@@ -171,6 +176,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
   interface Welcome {
     slot: number
     mapIndex: number
+    roundMs?: number
     tick: number
     keys: number
     keySpawns: number[]
@@ -181,6 +187,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
 
   interface RoundSetup {
     mapIndex: number
+    roundMs?: number
     keys: number
     keySpawns: number[]
     toolSpawns: number[]
@@ -190,6 +197,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
   room.onMessage(MSG.Welcome, (m: Welcome) => {
     mySlot = m.slot
     setMap(world, m.mapIndex)
+    world.roundDurationMs = m.roundMs ?? world.roundDurationMs
     for (let s = 0; s < MAX_PLAYERS; s++) world.colorSlot[s] = m.colors[s] ?? s
     readHistoryBlob(world, new DataView(m.history.buffer, m.history.byteOffset, m.history.byteLength))
     world.tick = m.tick
@@ -202,6 +210,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
 
   room.onMessage(MSG.Round, (m: RoundSetup) => {
     setMap(world, m.mapIndex)
+    world.roundDurationMs = m.roundMs ?? world.roundDurationMs
     for (let s = 0; s < MAX_PLAYERS; s++) world.colorSlot[s] = m.colors[s] ?? s
     applyKeys(m.keys)
     applyKeySpawns(m.keySpawns ?? [])
@@ -223,6 +232,12 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
       world.active[s] = snap.active[s]!
       if (snap.active[s] === 0) continue
       world.isBot[s] = snap.isBot[s]!
+      // Hide onset: stamp the sim clock so the interior overlay's creak runs on the same
+      // tick count as the server's eviction timer — correct even in a throttled
+      // background tab, because snapshots keep arriving while rAF does not.
+      if (snap.hiddenIn[s] !== NO_SLOT && world.hiddenIn[s] === NO_SLOT) {
+        world.hiddenSinceTick[s] = snap.tick
+      }
       world.hiddenIn[s] = snap.hiddenIn[s]!
       world.immuneUntilTick[s] = snap.immune[s] === 1 ? snap.tick + 2 : 0
       // Mirrored the same way as immunity: renewed every snapshot while the flag holds,
@@ -265,13 +280,15 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     world.clockMs = snap.clockMs
     world.tick = snap.tick
     for (let d = 0; d < snap.doorCount; d++) world.doorOpen[d] = snap.doorOpen[d]!
+    // Exact mirror, both directions: a disconnecting player's keys and tools RETURN to
+    // the floor (removePlayer puts them back), so a cleared bit must clear here too.
+    // Safe because the websocket is ordered — a snapshot can never arrive before the
+    // round-setup message that defined this round's spawns.
     for (let i = 0; i < MAX_WARDROBES; i++) {
-      // Only ever marks keys as taken: spawn positions (and the reset to untaken) come
-      // from the round-setup message, so a stale snapshot can never respawn a grabbed key.
-      if ((snap.keyTaken >> i) & 1) world.keyTaken[i] = 1
+      world.keyTaken[i] = (snap.keyTaken >> i) & 1
     }
     for (let i = 0; i < MAX_TOOL_SPAWNS; i++) {
-      if ((snap.toolTaken >> i) & 1) world.toolTaken[i] = 1
+      world.toolTaken[i] = (snap.toolTaken >> i) & 1
     }
     // Deployed tools: rebuild the pool from the snapshot (it is small and authoritative).
     world.depType.set(snap.depType)
@@ -287,11 +304,17 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     rebuildEchoBodies(world)
 
     // The tag lands at the START of the metamorphosis (itSlot passes through NO_SLOT for
-    // the whole lull, so watching itSlot alone would never fire).
-    if (snap.turningSlot !== NO_SLOT && snap.turningSlot !== prevTurning) {
+    // the whole lull, so watching itSlot alone would never fire). Never on the FIRST
+    // snapshot: a joiner arriving mid-metamorphosis would otherwise replay a seconds-old
+    // tag — sting and scatter burst — the moment they connect.
+    if (!firstSnapshot && snap.turningSlot !== NO_SLOT && snap.turningSlot !== prevTurning) {
       tagCb?.(prevIt, snap.turningSlot)
     }
+    firstSnapshot = false
     if (world.itSlot !== NO_SLOT) prevIt = world.itSlot
+    // Round boundaries pass through non-Playing phases; last round's ghost must not be
+    // blamed for the next round's first tag.
+    if (world.phase !== 2) prevIt = NO_SLOT
 
     sinceSnapMs = 0
     lastSnapAt = performance.now()
@@ -302,6 +325,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
       phase: number
       humans: number
       bots: number
+      roundMins: number
       hostId: string
       isPrivate: boolean
       players: { forEach(cb: (m: { slot: number; colorSlot: number; isBot: boolean; itTimeMs: number }) => void): void }
@@ -313,6 +337,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
       phase: s.phase,
       humans: s.humans,
       bots: s.bots ?? 0,
+      roundMins: s.roundMins || 3,
       isHost: s.hostId === room.sessionId,
       isPrivate: s.isPrivate,
       code,
@@ -389,6 +414,14 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     setBots(n: number): void {
       try {
         room.send(MSG.Bots, n)
+      } catch {
+        /* transient disconnects surface via onLeave, not here */
+      }
+    },
+
+    setRoundMins(n: number): void {
+      try {
+        room.send(MSG.Mins, n)
       } catch {
         /* transient disconnects surface via onLeave, not here */
       }

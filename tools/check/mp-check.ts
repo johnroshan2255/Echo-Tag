@@ -91,12 +91,23 @@ try {
   )
   ok((await snap(b))?.phase === 2, 'both clients agree the round is Playing')
 
-  const before = await myPos(a)
-  await a.keyboard.down('d')
-  await a.waitForTimeout(1500)
-  await a.keyboard.up('d')
-  const after = await myPos(a)
-  const moved = before && after ? Math.hypot(after[0] - before[0], after[1] - before[1]) : 0
+  // The bot ghost can tag (10% stumble) or trail-stun (full KO) the idle player right
+  // before or during the drive — neither is an input failure, so wait impairment out
+  // and try up to four headings: a fixed 'd' can also just scrape a wall. Same policy
+  // as browser-check's touch test.
+  const impaired = () =>
+    a.evaluate(() => (globalThis as { __echoTag?: { meImpaired?: boolean } }).__echoTag?.meImpaired ?? false)
+  let moved = 0
+  for (const key of ['d', 's', 'a', 'w']) {
+    for (let i = 0; i < 30 && (await impaired()); i++) await a.waitForTimeout(300)
+    const before = await myPos(a)
+    await a.keyboard.down(key)
+    await a.waitForTimeout(1500)
+    await a.keyboard.up(key)
+    const after = await myPos(a)
+    moved = before && after ? Math.hypot(after[0] - before[0], after[1] - before[1]) : 0
+    if (moved > 120) break
+  }
   ok(moved > 120, `keyboard input moved player A ${moved.toFixed(0)} world units`)
 
   const clockA = (await snap(a))!.clock

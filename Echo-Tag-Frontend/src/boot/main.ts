@@ -43,17 +43,24 @@ fit(preview)
 drawPreview(preview)
 
 let previewLive = true
-addEventListener(
-  'resize',
-  () => {
-    fit(stage)
-    if (previewLive) {
-      fit(preview)
-      drawPreview(preview)
-    }
-  },
-  { passive: true },
-)
+const refit = (): void => {
+  fit(stage)
+  if (previewLive) {
+    fit(preview)
+    drawPreview(preview)
+  }
+}
+// Rotation: iOS Safari can fire resize/orientationchange while innerWidth/innerHeight
+// still describe the OLD orientation — refit now and again once the rotation settles.
+let settleTimer: ReturnType<typeof setTimeout> | undefined
+const refitSettled = (): void => {
+  refit()
+  clearTimeout(settleTimer)
+  settleTimer = setTimeout(refit, 300)
+}
+addEventListener('resize', refitSettled, { passive: true })
+addEventListener('orientationchange', refitSettled, { passive: true })
+globalThis.visualViewport?.addEventListener('resize', refitSettled, { passive: true })
 
 // ── Start downloading the game immediately ───────────────────────────────────
 // Kicked off before the player can possibly have pressed Play, so the engine chunk
@@ -121,11 +128,14 @@ const start = async (mode: GameMode): Promise<void> => {
         ? 'Could not load the game. Check your connection.'
         : mode.kind === 'code'
           ? full
-            ? 'That room is full — 12 players max.'
+            ? 'That room is full right now — try again in a moment.'
             : 'No room with that code. Check it and try again.'
           : 'Could not reach the game server — try PLAY for a bots round.'
-    // A dead room link must not keep re-triggering the rejoin on every refresh.
-    if (mode.kind === 'code') {
+    // A dead room link must not keep re-triggering the rejoin on every refresh — but a
+    // FULL room is a transient state, often the refresher's own seat not yet freed
+    // (the server holds it briefly while the old socket closes). Keep the param then,
+    // so the next refresh can rejoin automatically once the seat frees.
+    if (mode.kind === 'code' && !full) {
       try {
         history.replaceState(null, '', location.pathname)
       } catch {

@@ -1,3 +1,4 @@
+import { CHAT_MAX_LEN, CHAT_MIN_INTERVAL_MS } from '@echo-tag/shared'
 import { CHAT_ICON, CLOSE_ICON, SEND_ICON, drawIconToCanvas } from './render/pixelIcons.ts'
 
 /**
@@ -49,8 +50,6 @@ export const createChatUi = (opts: {
   colorOf(colorSlot: number): number
   mySlot(): number
 }): ChatUi => {
-  const stop = (e: Event): void => e.stopPropagation()
-
   // ── The bubble button ──
   const button = document.createElement('button')
   button.id = 'chat-btn'
@@ -114,7 +113,7 @@ export const createChatUi = (opts: {
   inputRow.style.cssText = `display:flex;gap:8px;padding:10px 12px;border-top:${CHALK_BORDER};`
   const input = document.createElement('input')
   input.type = 'text'
-  input.maxLength = 120
+  input.maxLength = CHAT_MAX_LEN
   input.placeholder = '...'
   input.autocomplete = 'off'
   // 16px minimum or iOS zooms the whole page on focus.
@@ -136,8 +135,10 @@ export const createChatUi = (opts: {
   panel.append(header, list, inputRow)
   document.body.append(button, panel)
 
-  // Chat surfaces must never leak pointer events into the joystick underneath.
-  for (const el of [button, panel]) el.addEventListener('pointerdown', stop)
+  // Touches on chat must not engage the joystick: the joystick listens to raw touch
+  // events, so stopping *pointer* propagation here would not help — instead its own
+  // target check excludes #chat-panel (see input/joystick.ts). Nothing is stopped here,
+  // so the window-level pointerdown audio unlock still sees taps on chat.
 
   let open = false
   const setOpen = (v: boolean): void => {
@@ -153,8 +154,11 @@ export const createChatUi = (opts: {
   button.addEventListener('pointerdown', () => setOpen(!open))
   closeBtn.addEventListener('pointerdown', () => setOpen(false))
 
-  // The server rate-limits to one line per 600ms and silently drops the excess. Pace
-  // sends here so a quick second line is delayed, never lost.
+  // The server rate-limits by ARRIVAL time (CHAT_MIN_INTERVAL_MS apart) and silently
+  // drops the excess. Pace sends here so a quick second line is delayed, never lost —
+  // with 200ms on top of the server's window, because the gap that matters is measured
+  // at the server and ordinary network jitter eats a thin margin.
+  const SEND_SPACING_MS = CHAT_MIN_INTERVAL_MS + 200
   let nextSendAt = 0
   const submit = (): void => {
     const text = input.value.trim()
@@ -162,7 +166,7 @@ export const createChatUi = (opts: {
     input.value = ''
     const now = performance.now()
     const at = Math.max(now, nextSendAt)
-    nextSendAt = at + 620
+    nextSendAt = at + SEND_SPACING_MS
     if (at <= now) opts.send(text)
     else setTimeout(() => opts.send(text), at - now)
   }

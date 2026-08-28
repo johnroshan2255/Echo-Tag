@@ -20,7 +20,7 @@ import { encodeInput } from './input.ts'
 import { enterPhase, stepWorld } from './step.ts'
 import { setIt } from './tag.ts'
 import { queueToolUse } from './tools.ts'
-import { addPlayer, createWorld, type World } from './world.ts'
+import { addPlayer, createWorld, removePlayer, type World } from './world.ts'
 
 const EAST = encodeInput(1, 0)
 const ARM_TICKS = Math.ceil(TRAP_ARM_MS / TICK_MS)
@@ -201,5 +201,23 @@ describe('tools', () => {
     deployed = 0
     for (const t of w.depType) if (t !== TOOL_NONE) deployed++
     assert.equal(deployed, 0)
+  })
+
+  it("returns a disconnecting player's held tools to the floor", () => {
+    const w = playing(4)
+    // Slot 0 holds a goo jar claimed from spawn 2 and a trap from spawn 5.
+    w.toolType[2] = TOOL_GOO
+    w.toolTaken[2] = 1
+    w.held[0 * TOOL_SLOTS] = TOOL_GOO
+    w.toolType[5] = TOOL_TRAP
+    w.toolTaken[5] = 1
+    w.held[0 * TOOL_SLOTS + 1] = TOOL_TRAP
+
+    removePlayer(w, 0)
+
+    assert.equal(w.toolTaken[2], 0, 'a goo spawn reopens for the room')
+    assert.equal(w.toolTaken[5], 0, 'a trap spawn reopens for the room')
+    assert.equal(w.held[0 * TOOL_SLOTS], TOOL_NONE)
+    assert.equal(w.held[0 * TOOL_SLOTS + 1], TOOL_NONE)
   })
 })

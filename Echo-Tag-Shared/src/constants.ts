@@ -5,7 +5,16 @@
  */
 
 // ── Round ────────────────────────────────────────────────────────────────────
-export const ROUND_DURATION_MS = 180_000 // 3 minutes (GDD §2)
+export const ROUND_DURATION_MS = 180_000 // 3 minutes (GDD §2) — the default; hosts can change it
+// A private-room host may pick the round length (whole minutes). Public rooms stay at the default.
+export const ROUND_MINS_MIN = 3
+export const ROUND_MINS_MAX = 12
+
+// Room chat: the server drops lines arriving closer together than the interval (by its
+// own clock) and truncates to the max length. The client paces sends against the same
+// numbers — one source of truth, so a tuning change cannot silently desync the two sides.
+export const CHAT_MIN_INTERVAL_MS = 600
+export const CHAT_MAX_LEN = 120
 export const COUNTDOWN_MS = 1_500 // "3..2..1" before inputs unlock
 export const LEADERBOARD_MS = 8_000 // then auto-requeue
 export const MAX_LOBBY_WAIT_MS = 2_000 // hard cap before bot-fill (Tech doc §7)

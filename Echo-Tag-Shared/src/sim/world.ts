@@ -11,6 +11,7 @@ import {
   MAP_W,
   MAX_PLAYERS,
   PLAYER_COLORS,
+  ROUND_DURATION_MS,
   SPAWNS_PER_MAP,
   TOOL_SLOTS,
 } from '../constants.ts'
@@ -38,6 +39,8 @@ export interface World {
   phaseMs: number
   /** Milliseconds elapsed in Playing. Drives the round clock and It-time. */
   clockMs: number
+  /** Round length. ROUND_DURATION_MS by default; a private-room host may change it. */
+  roundDurationMs: number
   rng: number
   seed: number
 
@@ -180,6 +183,7 @@ export const createWorld = (seed: number, mapIndex = 0): World => {
     phase: RoundPhase.Lobby,
     phaseMs: 0,
     clockMs: 0,
+    roundDurationMs: ROUND_DURATION_MS,
     rng: seedFrom(seed),
     seed,
 
@@ -301,12 +305,16 @@ export const addPlayer = (w: World, isBot: boolean): Slot => {
     w.immuneUntilTick[s] = 0
     w.tagCooldownUntilTick[s] = 0
     w.lastInput[s] = IDLE_INPUT
-    // A reused slot must not inherit a departed player's claimed keys, tools or cooldowns.
+    // A reused slot must not inherit a departed player's claimed keys, tools, cooldowns
+    // or transient states. removePlayer clears these too; both ends stay defensive so no
+    // future removal path can hand a joiner a hidden or knocked-out body.
     w.keys.fill(0, s * MAX_WARDROBES, (s + 1) * MAX_WARDROBES)
     w.wardrobeCooldownUntil.fill(0, s * MAX_WARDROBES, (s + 1) * MAX_WARDROBES)
     w.held.fill(0, s * TOOL_SLOTS, (s + 1) * TOOL_SLOTS)
     w.useQueued[s] = 0
     w.slowedUntilTick[s] = 0
+    w.hiddenIn[s] = NO_SLOT
+    w.unconsciousUntilTick[s] = 0
     w.playerCount++
 
     // A mid-round joiner starts wherever there is the most room, and their history is
@@ -323,6 +331,36 @@ export const addPlayer = (w: World, isBot: boolean): Slot => {
 
 export const removePlayer = (w: World, slot: Slot): void => {
   if (w.active[slot] === 0) return
+
+  // Return what the leaver holds to the floor, at the original spawn spots. A mid-round
+  // disconnect must not shrink the round's key/tool economy — the refresh-rejoin flow
+  // leans on this: a player who refreshes re-earns their kit instead of destroying it
+  // for the whole room. A held tool goes back to the first claimed spawn of its type
+  // (equivalent economy; the sim does not track which spawn a held tool came from).
+  for (let i = 0; i < MAX_WARDROBES; i++) {
+    if (w.keys[slot * MAX_WARDROBES + i] === 1) w.keyTaken[i] = 0
+  }
+  w.keys.fill(0, slot * MAX_WARDROBES, (slot + 1) * MAX_WARDROBES)
+  for (let t = 0; t < TOOL_SLOTS; t++) {
+    const held = w.held[slot * TOOL_SLOTS + t]!
+    if (held === 0) continue
+    w.held[slot * TOOL_SLOTS + t] = 0
+    for (let i = 0; i < MAX_TOOL_SPAWNS; i++) {
+      if (w.toolTaken[i] === 1 && w.toolType[i] === held) {
+        w.toolTaken[i] = 0
+        break
+      }
+    }
+  }
+
+  // Transient states die with the leaver: a hider's wardrobe must not stay haunted, a
+  // KO must not outlive its body, and the no-tag-back pairing must not bind a stranger
+  // who later reuses the slot.
+  w.hiddenIn[slot] = NO_SLOT
+  w.unconsciousUntilTick[slot] = 0
+  w.useQueued[slot] = 0
+  if (w.tagBackSlot === slot) w.tagBackUntilTick = 0
+
   w.active[slot] = 0
   w.playerCount--
   // If "It" leaves, hand it to whoever has spent the least time as It — the fairest

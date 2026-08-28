@@ -59,7 +59,9 @@ const TORSO_Y1 = 13
 const ARM_Y0 = 8
 const ARM_Y1 = 13
 
-const LEG_Y0 = 14
+/** First leg row — exported so the renderer can taper the ghost's legs into a wisp tail. */
+export const LEG_TOP = 14
+const LEG_Y0 = LEG_TOP
 const LEG_Y1 = GRID_H - 1
 const LEG_INNER = 1 // gap in columns between the two legs
 

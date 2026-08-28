@@ -13,7 +13,7 @@ import { NO_SLOT, RoundPhase } from '../types.ts'
 import { encodeInput } from './input.ts'
 import { enterPhase, stepWorld } from './step.ts'
 import { setIt } from './tag.ts'
-import { addPlayer, createWorld, type World } from './world.ts'
+import { addPlayer, createWorld, removePlayer, type World } from './world.ts'
 
 /** Tests run on Warrens (map 3) — six wardrobes, the hiding map. */
 const MAP = 3
@@ -279,6 +279,29 @@ describe('wardrobes', () => {
     stage(w, 0)
     pressIn(w, inputs)
     assert.equal(w.hiddenIn[0], W, 'cooldown should have expired')
+  })
+
+  it('returns a disconnecting player\'s keys to the floor, and frees their wardrobe', () => {
+    const w = playing(4)
+    parkAway(w, 1, 2, 3)
+    stage(w, 0)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    pressIn(w, inputs)
+    assert.equal(w.hiddenIn[0], W, 'setup: slot 0 should be hiding')
+    w.keyTaken[W] = 1 // as if slot 0 grabbed the floor key normally
+
+    removePlayer(w, 0)
+
+    assert.equal(w.keyTaken[W], 0, 'the key must return to the floor for the room')
+    assert.equal(w.hiddenIn[0], NO_SLOT, 'the wardrobe must not stay haunted')
+    assert.equal(w.keys[0 * MAX_WARDROBES + W], 0, 'the leaver keeps nothing')
+
+    // The freed wardrobe accepts the next keyed hider.
+    const joined = addPlayer(w, false)
+    assert.equal(joined, 0, 'slot is reused')
+    stage(w, 0)
+    pressIn(w, inputs)
+    assert.equal(w.hiddenIn[0], W, 'a rejoiner with the key can hide again')
   })
 
   it('every map wardrobe is reachable: exit tile is open and adjacent', () => {

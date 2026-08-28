@@ -27,6 +27,9 @@ export const WORLD_SCALE = CELL_WORLD / TEXTURE_PX
 export interface BodyLayer {
   container: ParticleContainer
   particles: Particle[]
+  /** One flattened ground-shadow particle per player. Allocated FIRST in the container,
+   * so every shadow draws under every body — same texture, same draw call. */
+  shadows: Particle[]
   /** Particles per player. Derived from the template, not hardcoded. */
   stride: number
 }
@@ -52,6 +55,26 @@ export const createBodyLayer = (texture: Texture): BodyLayer => {
     },
   })
 
+  // Shadows first: insertion order is draw order inside a ParticleContainer, and a shadow
+  // over a face is worse than no shadow at all. A hard-edged flattened square fits the
+  // game's pixel register better than a soft ellipse would.
+  const shadows: Particle[] = []
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    const s = new Particle({
+      texture,
+      x: -9999,
+      y: -9999,
+      scaleX: WORLD_SCALE,
+      scaleY: WORLD_SCALE,
+      anchorX: 0.5,
+      anchorY: 0.5,
+      tint: 0x0a0816,
+      alpha: 0.3,
+    })
+    shadows.push(s)
+    container.addParticle(s)
+  }
+
   const particles: Particle[] = []
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const tint = PLAYER_COLORS[p % PLAYER_COLORS.length]!
@@ -71,7 +94,7 @@ export const createBodyLayer = (texture: Texture): BodyLayer => {
     }
   }
 
-  return { container, particles, stride }
+  return { container, particles, shadows, stride }
 }
 
 /** Grid-space to avatar-local world offset. The avatar is anchored at its feet. */
