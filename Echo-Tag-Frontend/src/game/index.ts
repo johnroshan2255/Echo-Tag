@@ -95,9 +95,9 @@ export interface GameHandle {
 }
 
 export type GameMode =
-  | { kind: 'bots' }
+  | { kind: 'bots'; mapIndex?: number }
   | { kind: 'quick' }
-  | { kind: 'host' }
+  | { kind: 'host'; mapIndex?: number }
   | { kind: 'code'; code: string }
 
 export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { kind: 'bots' }): Promise<GameHandle> => {
@@ -157,13 +157,15 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
         : { kind: 'code', code: mode.code },
   )
 
-  let mapIndex = DEV_MAP >= 0 ? DEV_MAP : 0
+  let mapIndex = DEV_MAP >= 0 ? DEV_MAP : ((mode.kind === 'bots' || mode.kind === 'host') && mode.mapIndex !== undefined) ? mode.mapIndex : 0
   const world: World = net ? net.world : createWorld(0xec07a6, mapIndex)
   let mySlot = net ? net.mySlot : LOCAL_SLOT
 
   if (!net) {
     for (let i = 0; i < MAX_PLAYERS; i++) addPlayer(world, i !== LOCAL_SLOT)
     if (DEV_ROUND_S > 0) world.roundDurationMs = DEV_ROUND_S * 1000
+    // Offline mode jumps straight to the countdown so the player isn't waiting in an
+    // empty room for a network that doesn't exist.
     enterPhase(world, RoundPhase.Countdown)
     if (DEV_AT && DEV_AT.length === 2) {
       world.x[LOCAL_SLOT] = (DEV_AT[0]! + 0.5) * 80
@@ -384,11 +386,12 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   // built here from the shared leaderboard() ranking instead.
   const localResultsView = (): import('./net/room.ts').LobbyView => ({
     phase: world.phase,
+    mapIndex: world.map.index,
     humans: 1,
     bots: world.playerCount - 1,
     roundMins: Math.round(world.roundDurationMs / 60_000),
-    isHost: false,
-    isPrivate: false,
+    isHost: true,
+    isPrivate: true,
     code: '',
     scores: leaderboard(world),
   })
@@ -404,6 +407,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       () => net.start(),
       (n) => net.setBots(n),
       (n) => net.setRoundMins(n),
+      (n) => net.setMapIndex(n),
     )
     const { createChatUi } = await import('./chat.ts')
     chatUi = createChatUi({

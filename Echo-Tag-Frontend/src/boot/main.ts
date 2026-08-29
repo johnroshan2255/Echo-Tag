@@ -1,5 +1,7 @@
 import { drawPreview } from './preview.ts'
 import { pokiInit, pokiLoadingFinished } from '../platform/poki.ts'
+import { MAP_COUNT, MAPS } from '@echo-tag/shared'
+import { drawMinimap } from './minimap.ts'
 
 /**
  * The boot chunk.
@@ -85,7 +87,25 @@ gameModule.catch(() => {})
 const menu = document.createElement('div')
 menu.id = 'menu'
 menu.innerHTML = `
+  <style>
+    #bmap { display: flex; align-items: stretch; justify-content: center; margin: 0 0 12px; gap: 8px; width: 100%; max-width: 320px; }
+    #bmap button { pointer-events: auto; cursor: pointer; border: 3px solid #3a3150; background: #262048; color: #e9ddff;
+      width: 44px; font: 800 18px/1 ui-monospace, monospace; box-shadow: 4px 4px 0 rgba(0,0,0,.35); flex-shrink: 0; }
+    #bmap button:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 rgba(0,0,0,.35); }
+    #bmap-preview { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1;
+      border: 3px solid #3a3150; background: #1d1830; padding: 12px; box-shadow: 4px 4px 0 rgba(0,0,0,.35); min-width: 0; }
+    #bmap-canvas { width: 100%; max-width: 240px; aspect-ratio: 24/14; image-rendering: pixelated; margin-bottom: 8px; border: 2px solid #3a3150; border-radius: 4px; }
+    #bmap-name { color: #ffc07a; font: 800 13px/1 ui-monospace, monospace; letter-spacing: .12em; text-shadow: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  </style>
   <h1 id="title">ECHO TAG</h1>
+  <div id="bmap">
+    <button id="bmap-prev" type="button">&#9664;</button>
+    <div id="bmap-preview">
+      <canvas id="bmap-canvas"></canvas>
+      <span id="bmap-name">FOUNDRY</span>
+    </div>
+    <button id="bmap-next" type="button">&#9654;</button>
+  </div>
   <button id="play" type="button" aria-label="Play with bots">PLAY</button>
   <p id="status">Don't be It when the clock runs out.</p>
   <div id="mp">
@@ -102,9 +122,34 @@ const quick = menu.querySelector('#quick') as HTMLButtonElement
 const host = menu.querySelector('#host') as HTMLButtonElement
 const joinForm = menu.querySelector('#joinform') as HTMLFormElement
 const codeIn = menu.querySelector('#codein') as HTMLInputElement
+const bmapPrev = menu.querySelector('#bmap-prev') as HTMLButtonElement
+const bmapNext = menu.querySelector('#bmap-next') as HTMLButtonElement
+const bmapName = menu.querySelector('#bmap-name') as HTMLElement
+const bmapCanvas = menu.querySelector('#bmap-canvas') as HTMLCanvasElement
+const bmapCtx = bmapCanvas.getContext('2d')!
 codeIn.addEventListener('input', () => {
   codeIn.value = codeIn.value.toUpperCase().replace(/[^A-Z]/g, '')
 })
+
+let bmapIndex = 0
+const updateBmap = () => {
+  const map = MAPS[bmapIndex]
+  if (!map) return
+  bmapName.textContent = map.name.toUpperCase()
+  
+  bmapCanvas.width = 240
+  bmapCanvas.height = 140
+  drawMinimap(bmapCtx, map, 240, 140)
+}
+bmapPrev.addEventListener('click', () => {
+  bmapIndex = (bmapIndex - 1 + MAP_COUNT) % MAP_COUNT
+  updateBmap()
+})
+bmapNext.addEventListener('click', () => {
+  bmapIndex = (bmapIndex + 1) % MAP_COUNT
+  updateBmap()
+})
+updateBmap()
 
 let starting = false
 
@@ -171,9 +216,9 @@ if (/^[A-Z]{5}$/.test(roomParam)) {
   void start({ kind: 'code', code: roomParam })
 }
 
-play.addEventListener('click', () => void start({ kind: 'bots' }))
+play.addEventListener('click', () => void start({ kind: 'bots', mapIndex: bmapIndex }))
 quick.addEventListener('click', () => void start({ kind: 'quick' }))
-host.addEventListener('click', () => void start({ kind: 'host' }))
+host.addEventListener('click', () => void start({ kind: 'host', mapIndex: bmapIndex }))
 joinForm.addEventListener('submit', (e) => {
   e.preventDefault()
   if (codeIn.value.length === 5) void start({ kind: 'code', code: codeIn.value })
@@ -184,7 +229,7 @@ addEventListener('keydown', (e) => {
   if (starting || document.activeElement === codeIn) return
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
-    void start({ kind: 'bots' })
+    void start({ kind: 'bots', mapIndex: bmapIndex })
   }
 })
 

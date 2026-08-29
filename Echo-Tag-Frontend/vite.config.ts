@@ -44,5 +44,12 @@ export default defineConfig(({ mode }) => ({
     },
   },
 
-  server: { port: 5173, host: true },
+  server: {
+    port: 5173,
+    host: true,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'unsafe-none',
+      'Cross-Origin-Embedder-Policy': 'unsafe-none',
+    },
+  },
 }))

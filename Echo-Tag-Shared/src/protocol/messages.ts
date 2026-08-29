@@ -25,6 +25,7 @@ export const MSG = {
   Emote: 'e',
   Bots: 'n',
   Mins: 'm',
+  Map: 'p',
   Go: 'g',
   Welcome: 'w',
   Round: 'r',

@@ -47,6 +47,7 @@ export interface LobbyView {
   bots: number
   /** Round length in whole minutes (private-room hosts may change it). */
   roundMins: number
+  mapIndex: number
   isHost: boolean
   isPrivate: boolean
   code: string
@@ -77,6 +78,8 @@ export interface NetGame {
   setBots(n: number): void
   /** Host only, private lobbies: round length in whole minutes (clamped server-side). */
   setRoundMins(n: number): void
+  /** Host only, private lobbies: select map. */
+  setMapIndex(n: number): void
   onLobby(cb: (view: LobbyView) => void): void
   onTag(cb: (from: number, to: number) => void): void
   onRoundSetup(cb: () => void): void
@@ -340,6 +343,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
   room.onStateChange((state) => {
     const s = state as unknown as {
       phase: number
+      mapIndex: number
       humans: number
       bots: number
       roundMins: number
@@ -356,6 +360,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     scores.sort((a, b) => a.itTimeMs - b.itTimeMs || a.caught - b.caught || a.slot - b.slot)
     lastLobbyView = {
       phase: s.phase,
+      mapIndex: s.mapIndex ?? 0,
       humans: s.humans,
       bots: s.bots ?? 0,
       roundMins: s.roundMins || 3,
@@ -454,6 +459,14 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     setRoundMins(n: number): void {
       try {
         room.send(MSG.Mins, n)
+      } catch {
+        /* transient disconnects surface via onLeave, not here */
+      }
+    },
+
+    setMapIndex(n: number): void {
+      try {
+        room.send(MSG.Map, n)
       } catch {
         /* transient disconnects surface via onLeave, not here */
       }

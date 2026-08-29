@@ -159,6 +159,17 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
       this.world.roundDurationMs = mins * 60_000
     })
 
+    this.onMessage(MSG.Map, (client, n: unknown) => {
+      console.log("MSG.Map received", n, client.sessionId, this.state.hostId, this.state.isPrivate, this.world.phase)
+      if (client.sessionId !== this.state.hostId) return console.log("rejected: not host")
+      if (!this.state.isPrivate || this.world.phase !== RoundPhase.Lobby) return console.log("rejected: not private or not lobby")
+      if (typeof n !== 'number' || !Number.isInteger(n)) return console.log("rejected: not integer")
+      const index = Math.max(0, Math.min(MAP_COUNT - 1, n))
+      setMap(this.world, index)
+      this.state.mapIndex = index
+      console.log("Accepted and updated mapIndex to", index)
+    })
+
     this.onMessage(MSG.Go, (client) => {
       // Only the host starts a private lobby; public lobbies start themselves.
       if (client.sessionId !== this.state.hostId) return

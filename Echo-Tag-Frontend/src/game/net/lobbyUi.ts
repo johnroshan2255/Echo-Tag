@@ -1,5 +1,6 @@
-import { PLAYER_COLORS, ROUND_MINS_MAX, ROUND_MINS_MIN, RoundPhase } from '@echo-tag/shared'
+import { MAP_COUNT, MAP_TILES_X, MAP_TILES_Y, MAPS, PLAYER_COLORS, ROUND_MINS_MAX, ROUND_MINS_MIN, RoundPhase } from '@echo-tag/shared'
 import type { LobbyView } from './room.ts'
+import { drawMinimap } from '../../boot/minimap.ts'
 
 /**
  * The lobby / results overlay: plain DOM in the game's dusk-and-squares language.
@@ -20,6 +21,7 @@ export const createLobbyUi = (
   onStart: () => void,
   onBots?: (n: number) => void,
   onMins?: (n: number) => void,
+  onMap?: (n: number) => void,
 ): LobbyUi => {
   const root = document.createElement('div')
   root.id = 'lobby'
@@ -38,6 +40,14 @@ export const createLobbyUi = (
         <button id="mins-minus" type="button" aria-label="shorter round">&#8211;</button>
         <span id="mins-label"></span>
         <button id="mins-plus" type="button" aria-label="longer round">+</button>
+      </div>
+      <div id="lobby-map" hidden>
+        <button id="map-minus" type="button" aria-label="previous map">&#9664;</button>
+        <div id="map-preview">
+          <canvas id="map-canvas"></canvas>
+          <span id="map-label"></span>
+        </div>
+        <button id="map-plus" type="button" aria-label="next map">&#9654;</button>
       </div>
       <button id="lobby-start" type="button" hidden>START ROUND</button>
       <p id="lobby-hint"></p>
@@ -67,17 +77,20 @@ export const createLobbyUi = (
     #lobby-start:disabled { background: #574a3a; color: #2e2517; cursor: default;
       transform: none; box-shadow: 4px 4px 0 rgba(0,0,0,.4); }
     #lobby-count { color: #f6f1ff; font-size: 13px; letter-spacing: .12em; margin: 0 0 10px; }
-    #lobby-bots, #lobby-mins { pointer-events: auto; display: flex; gap: 0; justify-content: center;
+    #lobby-bots, #lobby-mins, #lobby-map { pointer-events: auto; display: flex; gap: 0; justify-content: center;
       align-items: stretch; margin: 0 0 12px; }
-    #lobby-bots[hidden], #lobby-mins[hidden] { display: none; }
-    #lobby-bots button, #lobby-mins button { cursor: pointer; width: 44px; min-height: 44px;
+    #lobby-bots[hidden], #lobby-mins[hidden], #lobby-map[hidden] { display: none; }
+    #lobby-bots button, #lobby-mins button, #lobby-map button { cursor: pointer; width: 44px; min-height: 44px;
       border: 3px solid #3a3150; background: #262048; color: #e9ddff;
       font: 800 18px/1 ui-monospace, monospace; }
-    #lobby-bots button:active, #lobby-mins button:active { background: #3a3150; }
-    #bots-label, #mins-label { display: flex; align-items: center; justify-content: center;
+    #lobby-bots button:active, #lobby-mins button:active, #lobby-map button:active { background: #3a3150; }
+    #bots-label, #mins-label, #map-preview { display: flex; align-items: center; justify-content: center;
       min-width: 96px; padding: 10px 16px; color: #ffc07a;
       border: 3px solid #3a3150; border-left: 0; border-right: 0; font: 800 13px/1 ui-monospace, monospace;
       letter-spacing: .12em; }
+    #map-preview { flex-direction: column; padding: 6px 12px; background: #1d1830; }
+    #map-canvas { width: 144px; aspect-ratio: 24/14; image-rendering: pixelated; margin-bottom: 6px; border: 2px solid #3a3150; border-radius: 4px; }
+    #map-label { line-height: 1; text-shadow: none; }
     #lobby-hint { color: #b3a8c9; font-size: 12px; margin: 12px 0 0; }
     #lobby.results #lobby-roster { flex-direction: column; align-items: stretch; }
     .lobby-row { display: flex; align-items: center; gap: 10px; color: #f6f1ff;
@@ -95,7 +108,7 @@ export const createLobbyUi = (
       #lobby-code b { font-size: 22px; margin: 2px 0 0; }
       #lobby-count { margin: 0 0 6px; }
       #lobby-roster { margin: 0 0 10px; }
-      #lobby-bots, #lobby-mins { margin: 0 0 8px; }
+      #lobby-bots, #lobby-mins, #lobby-map { margin: 0 0 8px; }
       #lobby-start { padding: 10px 34px; min-height: 44px; }
       #lobby-hint { margin: 8px 0 0; }
     }
@@ -116,6 +129,12 @@ export const createLobbyUi = (
   const minsLabel = root.querySelector('#mins-label') as HTMLElement
   const minsMinus = root.querySelector('#mins-minus') as HTMLButtonElement
   const minsPlus = root.querySelector('#mins-plus') as HTMLButtonElement
+  const mapRow = root.querySelector('#lobby-map') as HTMLElement
+  const mapLabel = root.querySelector('#map-label') as HTMLElement
+  const mapMinus = root.querySelector('#map-minus') as HTMLButtonElement
+  const mapPlus = root.querySelector('#map-plus') as HTMLButtonElement
+  const mapCanvas = root.querySelector('#map-canvas') as HTMLCanvasElement
+  const mapCtx = mapCanvas.getContext('2d')!
   const startBtn = root.querySelector('#lobby-start') as HTMLButtonElement
   const hint = root.querySelector('#lobby-hint') as HTMLElement
   startBtn.addEventListener('click', onStart)
@@ -135,6 +154,20 @@ export const createLobbyUi = (
   minsPlus.addEventListener('click', () => {
     if (last) onMins?.(Math.min(ROUND_MINS_MAX, last.roundMins + 1))
   })
+  mapMinus.addEventListener('click', () => {
+    if (last) onMap?.((last.mapIndex - 1 + MAP_COUNT) % MAP_COUNT)
+  })
+  mapPlus.addEventListener('click', () => {
+    if (last) onMap?.((last.mapIndex + 1) % MAP_COUNT)
+  })
+
+  const paintMinimap = (mapIndex: number) => {
+    const map = MAPS[mapIndex]
+    if (!map) return
+    mapCanvas.width = 144
+    mapCanvas.height = 84
+    drawMinimap(mapCtx, map, 144, 84)
+  }
 
   return {
     update(view: LobbyView): void {
@@ -155,6 +188,21 @@ export const createLobbyUi = (
         botsLabel.textContent = `BOTS: ${view.bots}`
         minsRow.hidden = !(view.isPrivate && view.isHost)
         minsLabel.textContent = `ROUND: ${view.roundMins} MIN`
+        mapRow.hidden = false // Everyone sees the map, but only host can change it
+        mapMinus.style.visibility = (view.isPrivate && view.isHost) || (!view.isPrivate && view.phase !== RoundPhase.Lobby) ? 'visible' : 'hidden'
+        mapPlus.style.visibility = mapMinus.style.visibility
+        
+        // Ensure offline mode can change map if we don't have isHost true? Offline mode has isPrivate=true, isHost=true usually? We'll see.
+        if (view.isPrivate && !view.isHost) {
+            mapMinus.style.visibility = 'hidden'
+            mapPlus.style.visibility = 'hidden'
+        } else {
+            mapMinus.style.visibility = 'visible'
+            mapPlus.style.visibility = 'visible'
+        }
+
+        mapLabel.textContent = MAPS[view.mapIndex]?.name?.toUpperCase() ?? 'UNKNOWN'
+        paintMinimap(view.mapIndex)
         // Bots count toward a startable round: a solo host plus one bot is a real game,
         // and the bots +/- control they are shown must be able to take effect.
         const canStart = view.humans + view.bots >= 2
