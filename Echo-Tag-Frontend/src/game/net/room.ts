@@ -145,6 +145,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
   let lastLobbyView: LobbyView | null = null
   let prevIt = NO_SLOT
   let firstSnapshot = true
+  let hasRoundSetup = false
 
   room.onMessage(MSG.Chat, (m: { slot: number; text: string }) => {
     if (typeof m?.slot === 'number' && typeof m?.text === 'string') chatCb?.(m.slot, m.text)
@@ -219,6 +220,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     applyKeySpawns(m.keySpawns ?? [])
     applyToolSpawns(m.toolSpawns ?? [])
     havePrediction = false
+    hasRoundSetup = true
     roundCb?.()
   })
 
@@ -230,6 +232,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     applyKeySpawns(m.keySpawns ?? [])
     applyToolSpawns(m.toolSpawns ?? [])
     havePrediction = false
+    hasRoundSetup = true
     roundCb?.()
   })
 
@@ -345,9 +348,10 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
       players: { forEach(cb: (m: { slot: number; colorSlot: number; isBot: boolean; itTimeMs: number; caught: number }) => void): void }
     }
     const scores: LobbyView['scores'] = []
-    s.players.forEach((m) =>
-      scores.push({ slot: m.slot, colorSlot: m.colorSlot, isBot: m.isBot, itTimeMs: m.itTimeMs, caught: m.caught ?? 0 }),
-    )
+    s.players.forEach((m) => {
+      world.colorSlot[m.slot] = m.colorSlot
+      scores.push({ slot: m.slot, colorSlot: m.colorSlot, isBot: m.isBot, itTimeMs: m.itTimeMs, caught: m.caught ?? 0 })
+    })
     // Same ordering as the shared leaderboard(): least It-time, then fewest catches, then slot.
     scores.sort((a, b) => a.itTimeMs - b.itTimeMs || a.caught - b.caught || a.slot - b.slot)
     lastLobbyView = {
@@ -466,6 +470,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     },
     onRoundSetup(cb): void {
       roundCb = cb
+      if (hasRoundSetup) cb()
     },
     onHostLeft(cb): void {
       hostLeftCb = cb

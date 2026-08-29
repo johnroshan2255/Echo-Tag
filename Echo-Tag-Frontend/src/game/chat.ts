@@ -154,6 +154,13 @@ export const createChatUi = (opts: {
   button.addEventListener('pointerdown', () => setOpen(!open))
   closeBtn.addEventListener('pointerdown', () => setOpen(false))
 
+  const onOutsideClick = (e: PointerEvent): void => {
+    if (open && !panel.contains(e.target as Node) && !button.contains(e.target as Node)) {
+      setOpen(false)
+    }
+  }
+  document.addEventListener('pointerdown', onOutsideClick)
+
   // The server rate-limits by ARRIVAL time (CHAT_MIN_INTERVAL_MS apart) and silently
   // drops the excess. Pace sends here so a quick second line is delayed, never lost —
   // with 200ms on top of the server's window, because the gap that matters is measured
@@ -202,6 +209,7 @@ export const createChatUi = (opts: {
       if (!open) badge.style.display = 'block'
     },
     destroy(): void {
+      document.removeEventListener('pointerdown', onOutsideClick)
       button.remove()
       panel.remove()
     },

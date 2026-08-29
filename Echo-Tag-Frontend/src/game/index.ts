@@ -599,9 +599,13 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     const a = net ? net.alpha() : ticker.alpha
 
     // Camera follows the interpolated local player, so it is as smooth as the avatar.
-    const lx = prevX[mySlot]! + (world.x[mySlot]! - prevX[mySlot]!) * a
-    const ly = prevY[mySlot]! + (world.y[mySlot]! - prevY[mySlot]!) * a
-    followCamera(cam, lx, ly, world.vx[mySlot]!, world.vy[mySlot]!, dt)
+    let lx = cam.cx
+    let ly = cam.cy
+    if (mySlot !== NO_SLOT && prevX[mySlot] !== undefined) {
+      lx = prevX[mySlot]! + (world.x[mySlot]! - prevX[mySlot]!) * a
+      ly = prevY[mySlot]! + (world.y[mySlot]! - prevY[mySlot]!) * a
+      followCamera(cam, lx, ly, world.vx[mySlot]!, world.vy[mySlot]!, dt)
+    }
     applyCamera(cam, layers.worldRoot, viewW, viewH)
 
     // ── The terror: BECOMING the ghost, first-person ──
