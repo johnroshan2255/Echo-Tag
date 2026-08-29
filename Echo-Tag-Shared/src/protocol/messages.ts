@@ -29,4 +29,5 @@ export const MSG = {
   Welcome: 'w',
   Round: 'r',
   Snapshot: 's',
+  HostLeft: 'h',
 } as const

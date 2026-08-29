@@ -42,7 +42,7 @@ import { renderIndicator } from './render/indicator.ts'
 import { renderInterior } from './render/interior.ts'
 import { renderTerror } from './render/terror.ts'
 import { renderTools } from './render/toolsRenderer.ts'
-import { EMOTE_ICONS, JAR_ICON, SOUND_OFF_ICON, SOUND_ON_ICON, TRAP_ICON, drawIconToCanvas } from './render/pixelIcons.ts'
+import { CLOSE_ICON, EMOTE_ICONS, JAR_ICON, SOUND_OFF_ICON, SOUND_ON_ICON, TRAP_ICON, drawIconToCanvas } from './render/pixelIcons.ts'
 import { createBanner } from './render/banner.ts'
 import {
   createAnimState,
@@ -268,6 +268,75 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   })
   document.body.appendChild(muteBtn)
 
+  // ── Modals: simple custom DOM dialogs ──
+  const showModal = (msg: string, isConfirm: boolean, onConfirm: () => void): void => {
+    const overlay = document.createElement('div')
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:100;display:grid;place-content:center;padding:20px;'
+    
+    const box = document.createElement('div')
+    box.style.cssText =
+      'background:#262048;border:3px solid #3a3150;box-shadow:8px 8px 0 rgba(0,0,0,0.4);padding:32px;text-align:center;'
+    
+    const p = document.createElement('p')
+    p.style.cssText = 'font:700 18px/1.4 system-ui,sans-serif;color:#f6f1ff;margin:0 0 26px;max-width:280px;text-transform:uppercase;letter-spacing:0.05em;'
+    p.textContent = msg
+    box.appendChild(p)
+    
+    const row = document.createElement('div')
+    row.style.cssText = 'display:flex;gap:16px;justify-content:center;'
+    
+    const btnStyle = 'padding:14px 24px;font:800 16px/1 system-ui,sans-serif;letter-spacing:0.12em;border:3px solid #3a3150;box-shadow:4px 4px 0 rgba(0,0,0,0.35);cursor:pointer;text-transform:uppercase;'
+    
+    if (isConfirm) {
+      const cancelBtn = document.createElement('button')
+      cancelBtn.textContent = 'CANCEL'
+      cancelBtn.style.cssText = btnStyle + 'background:#262048;color:#e9ddff;'
+      cancelBtn.addEventListener('click', () => overlay.remove())
+      // Active state styling simulation
+      cancelBtn.addEventListener('pointerdown', () => { cancelBtn.style.transform = 'translate(2px,2px)'; cancelBtn.style.boxShadow = '2px 2px 0 rgba(0,0,0,.35)' })
+      cancelBtn.addEventListener('pointerup', () => { cancelBtn.style.transform = 'none'; cancelBtn.style.boxShadow = '4px 4px 0 rgba(0,0,0,.35)' })
+      row.appendChild(cancelBtn)
+    }
+    
+    const okBtn = document.createElement('button')
+    okBtn.textContent = isConfirm ? 'LEAVE' : 'OK'
+    okBtn.style.cssText = btnStyle + 'background:#ffc07a;color:#241505;border-color:#d49b5f;'
+    okBtn.addEventListener('click', () => {
+      overlay.remove()
+      onConfirm()
+    })
+    okBtn.addEventListener('pointerdown', () => { okBtn.style.transform = 'translate(2px,2px)'; okBtn.style.boxShadow = '2px 2px 0 rgba(0,0,0,.35)' })
+    okBtn.addEventListener('pointerup', () => { okBtn.style.transform = 'none'; okBtn.style.boxShadow = '4px 4px 0 rgba(0,0,0,.35)' })
+    row.appendChild(okBtn)
+    
+    box.appendChild(row)
+    overlay.appendChild(box)
+    document.body.appendChild(overlay)
+  }
+
+  // ── Leave button: bottom-right corner, next to mute ──
+  const leaveBtn = document.createElement('button')
+  leaveBtn.id = 'leave-btn'
+  leaveBtn.style.cssText =
+    CHIP_STYLE +
+    'position:fixed;bottom:calc(14px + env(safe-area-inset-bottom));right:calc(74px + env(safe-area-inset-right));z-index:30;'
+  const leaveCanvas = document.createElement('canvas')
+  leaveCanvas.width = 40
+  leaveCanvas.height = 40
+  leaveCanvas.style.cssText = 'width:40px;height:40px;image-rendering:pixelated;'
+  drawIconToCanvas(leaveCanvas, CLOSE_ICON, 4)
+  leaveBtn.appendChild(leaveCanvas)
+  leaveBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    showModal('Are you sure you want to leave the game?', true, () => {
+      net?.destroy()
+      location.search = ''
+    })
+  })
+  document.body.appendChild(leaveBtn)
+
   // ── Emote buttons: a column under the tool belt. Tap to flash the icon over your head
   // (relayed room-wide in multiplayer, like chat — the echo is the single source of truth).
   const sendEmote = (n: number): void => {
@@ -350,7 +419,11 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       onTagged(anim, to, performance.now())
       audio.onTag(world, (mySlot = net.mySlot), from, to)
     })
-    net.onTag // (tag handling above)
+    net.onHostLeft(() => {
+      showModal('The host has left the game.', false, () => {
+        location.search = ''
+      })
+    })
     // Server-driven rounds: the phase transition arrives via snapshot; watch it for the
     // gameplayStop/ad-break moment.
     let prevPhase = world.phase
@@ -639,6 +712,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       removeEventListener('keydown', onToolKey)
       toolbar.remove()
       muteBtn.remove()
+      leaveBtn.remove()
       emoteBar.remove()
       banner.destroy()
       hudTimer.destroy()

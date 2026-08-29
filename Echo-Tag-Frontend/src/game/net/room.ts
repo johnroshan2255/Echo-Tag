@@ -80,6 +80,7 @@ export interface NetGame {
   onLobby(cb: (view: LobbyView) => void): void
   onTag(cb: (from: number, to: number) => void): void
   onRoundSetup(cb: () => void): void
+  onHostLeft(cb: () => void): void
   start(): void
   destroy(): void
 }
@@ -140,6 +141,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
   let roundCb: (() => void) | null = null
   let chatCb: ((slot: number, text: string) => void) | null = null
   let emoteCb: ((slot: number, n: number) => void) | null = null
+  let hostLeftCb: (() => void) | null = null
   let lastLobbyView: LobbyView | null = null
   let prevIt = NO_SLOT
   let firstSnapshot = true
@@ -150,6 +152,10 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
 
   room.onMessage(MSG.Emote, (m: { slot: number; n: number }) => {
     if (typeof m?.slot === 'number' && typeof m?.n === 'number') emoteCb?.(m.slot, m.n)
+  })
+
+  room.onMessage(MSG.HostLeft, () => {
+    hostLeftCb?.()
   })
 
   const applyKeys = (mask: number): void => {
@@ -460,6 +466,9 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     },
     onRoundSetup(cb): void {
       roundCb = cb
+    },
+    onHostLeft(cb): void {
+      hostLeftCb = cb
     },
     start(): void {
       room.send(MSG.Go)

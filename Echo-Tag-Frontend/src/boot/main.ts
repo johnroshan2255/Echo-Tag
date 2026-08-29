@@ -62,6 +62,14 @@ addEventListener('resize', refitSettled, { passive: true })
 addEventListener('orientationchange', refitSettled, { passive: true })
 globalThis.visualViewport?.addEventListener('resize', refitSettled, { passive: true })
 
+// ── Fullscreen ───────────────────────────────────────────────────────────────
+// Forcefully request fullscreen on the first tap anywhere to hide browser headers.
+addEventListener('pointerdown', () => {
+  try {
+    void document.documentElement.requestFullscreen?.().catch(() => {})
+  } catch {}
+}, { once: true })
+
 // ── Start downloading the game immediately ───────────────────────────────────
 // Kicked off before the player can possibly have pressed Play, so the engine chunk
 // downloads while they are reading the button. Rejection is swallowed here and surfaced
@@ -103,6 +111,13 @@ let starting = false
 const start = async (mode: GameMode): Promise<void> => {
   if (starting) return
   starting = true
+  
+  try {
+    void document.documentElement.requestFullscreen?.().catch(() => {})
+  } catch {
+    /* ignore if browser rejects or doesn't support it */
+  }
+
   play.textContent = 'LOADING'
   menu.classList.add('busy')
 

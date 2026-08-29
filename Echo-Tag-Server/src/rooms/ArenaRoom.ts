@@ -231,11 +231,22 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     this.emoteNextAt.delete(client.sessionId)
     const slot = this.slotOf.get(client.sessionId)
     if (slot === undefined) return
+    
+    const wasHost = this.state.hostId === client.sessionId
+
     this.slotOf.delete(client.sessionId)
     this.state.players.delete(client.sessionId)
     this.state.humans--
     removePlayer(this.world, slot)
-    if (this.state.hostId === client.sessionId) {
+    
+    if (wasHost) {
+      if (this.state.isPrivate) {
+        // In private co-op rooms, the host's departure collapses the room.
+        this.broadcast(MSG.HostLeft, {})
+        void this.disconnect()
+        return
+      }
+      // Otherwise, hand the host crown to the next player.
       this.state.hostId = this.slotOf.keys().next().value ?? ''
     }
     // Last human out: hold the room for the grace window — they may just be refreshing.
