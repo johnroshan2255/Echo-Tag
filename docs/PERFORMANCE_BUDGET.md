@@ -35,7 +35,7 @@ The player can press Play at ~120ms. Whether the engine arrived yet is invisible
 | Chunk | Budget | Contents |
 |---|---|---|
 | `index.html` + inline CSS | 4 KB | shell, critical CSS, SDK tag |
-| `boot` | 16 KB | preview render, Play button, input capture, dynamic import |
+| `boot` | 16 KB | preview render, Play button, input capture, dynamic import, i18n table (8 languages — currently ~87% of the budget; split game strings out of `platform/i18n.ts` if boot ever needs more room) |
 | `ui` | 12 KB | preact/compat + zustand + HUD/leaderboard |
 | `net` | 25 KB | @colyseus/sdk |
 | `game` | 40 KB | shared sim + renderers + animation + input |

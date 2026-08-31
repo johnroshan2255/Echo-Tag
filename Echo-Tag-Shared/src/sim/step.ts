@@ -43,7 +43,7 @@ export const stepWorld = (w: World, inputs: Uint8Array): StepEvents => {
   ev.tagFrom = NO_SLOT
   ev.tagTo = NO_SLOT
   ev.roundEnded = false
-  ev.hazardKill = NO_SLOT
+  ev.hazardCaught = NO_SLOT
   ev.portalUsed = NO_SLOT
 
   w.tick++
@@ -91,13 +91,14 @@ export const stepWorld = (w: World, inputs: Uint8Array): StepEvents => {
     if (w.active[s] === 0) continue
     if (w.hiddenIn[s] !== NO_SLOT) continue // inside a wardrobe: no movement, no collision
     if (w.tick < w.unconsciousUntilTick[s]!) continue // out cold: input dead, body still
+    if (w.heldByNest[s] !== NO_SLOT) continue // in a grabber's grip: input feeds the struggle
     integratePlayer(w, s, inputs[s] ?? IDLE_INPUT)
   }
 
-  // Teleports and nest kills happen AFTER movement and BEFORE history sampling, so the
-  // ring records the destination — a trail never bridges a warp or a respawn.
+  // Teleports and grabs happen AFTER movement and BEFORE history sampling, so the ring
+  // records where the body actually ended up — a trail never bridges a warp or a drag.
   updatePortals(w)
-  updateNests(w)
+  updateNests(w, inputs)
 
   sampleHistory(w)
   rebuildEchoBodies(w)

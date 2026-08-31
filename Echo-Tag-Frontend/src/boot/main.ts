@@ -1,5 +1,6 @@
 import { drawPreview } from './preview.ts'
 import { pokiInit, pokiLoadingFinished } from '../platform/poki.ts'
+import { T } from '../platform/i18n.ts'
 import { MAP_COUNT, MAPS, MONSTER_NAMES } from '@echo-tag/shared'
 import { drawMinimap } from './minimap.ts'
 
@@ -158,6 +159,15 @@ codeIn.addEventListener('input', () => {
   codeIn.value = codeIn.value.toUpperCase().replace(/[^A-Z]/g, '')
 })
 
+// The menu speaks the player's language (platform/i18n.ts): labels are set here rather
+// than authored per-language in the HTML, so the markup stays one file.
+play.textContent = T.play
+quick.textContent = T.quick
+host.textContent = T.host
+;(menu.querySelector('#joinbtn') as HTMLButtonElement).textContent = T.join
+codeIn.placeholder = T.codePlaceholder
+status.textContent = T.tagline
+
 let bmapIndex = 0
 const updateBmap = () => {
   const map = MAPS[bmapIndex]
@@ -191,7 +201,7 @@ const start = async (mode: GameMode): Promise<void> => {
     /* ignore if browser rejects or doesn't support it */
   }
 
-  play.textContent = 'LOADING'
+  play.textContent = T.loading
   menu.classList.add('busy')
 
   try {
@@ -210,16 +220,16 @@ const start = async (mode: GameMode): Promise<void> => {
     starting = false
     gameModule = null
     menu.classList.remove('busy')
-    play.textContent = 'RETRY'
+    play.textContent = T.retry
     const full = String(err).toLowerCase().includes('full')
     status.textContent =
       mode.kind === 'bots'
-        ? 'Could not load the game. Check your connection.'
+        ? T.errLoad
         : mode.kind === 'code'
           ? full
-            ? 'That room is full right now — try again in a moment.'
-            : 'No room with that code. Check it and try again.'
-          : 'Could not reach the game server — try PLAY for a bots round.'
+            ? T.errFull
+            : T.errNoRoom
+          : T.errServer
     // A dead room link must not keep re-triggering the rejoin on every refresh — but a
     // FULL room is a transient state, often the refresher's own seat not yet freed
     // (the server holds it briefly while the old socket closes). Keep the param then,
@@ -241,7 +251,7 @@ const start = async (mode: GameMode): Promise<void> => {
 // without a user gesture; the engine resumes it on the first press or tap.
 const roomParam = new URLSearchParams(location.search).get('room')?.toUpperCase() ?? ''
 if (/^[A-Z]{5}$/.test(roomParam)) {
-  status.textContent = `Rejoining room ${roomParam}...`
+  status.textContent = `${T.rejoining} ${roomParam}...`
   void start({ kind: 'code', code: roomParam })
 }
 
@@ -251,7 +261,7 @@ host.addEventListener('click', () => void start({ kind: 'host', mapIndex: bmapIn
 joinForm.addEventListener('submit', (e) => {
   e.preventDefault()
   if (codeIn.value.length === 5) void start({ kind: 'code', code: codeIn.value })
-  else status.textContent = 'Room codes are five letters.'
+  else status.textContent = T.errCodeLen
 })
 // Enter/Space anywhere starts a bots round — the zero-friction path. Removed on a
 // successful start, so the game doesn't keep the dead menu's closure alive.

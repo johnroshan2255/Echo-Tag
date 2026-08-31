@@ -1,4 +1,4 @@
-import { Decor, MAP_TILE, MAP_TILES_X, MAP_TILES_Y, MAP_W, MAP_H, NEST_RADIUS, TILE_FURNITURE, TILE_WALL } from '@echo-tag/shared'
+import { Decor, MAP_TILE, MAP_TILES_X, MAP_TILES_Y, MAP_W, MAP_H, Monster, MONSTER_BY_MAP, NEST_RADIUS, TILE_FURNITURE, TILE_WALL } from '@echo-tag/shared'
 import type { GameMap } from '@echo-tag/shared'
 import {
   cosmeticRng,
@@ -147,13 +147,18 @@ export const drawMinimap = (ctx: CanvasRenderingContext2D, map: GameMap, canvasW
     }
   }
 
-  // Rugs.
+  // Rugs (recessed deck panels on the hive — mirror arena.ts).
   for (let i = 0; i < decor.length; i += 3) {
     if (decor[i] !== Decor.Rug) continue
     const x = decor[i + 1]! * MAP_TILE
     const y = decor[i + 2]! * MAP_TILE
     const rw = MAP_TILE * 3
     const rh = MAP_TILE * 2
+    if (theme.panelSeams) {
+      rect(x, y, rw, rh, 0x131b28, 0.9)
+      strokeRect(x, y, rw, rh, theme.wallRim, 0.25, 3)
+      continue
+    }
     rect(x, y, rw, rh, RUG_FILL, 0.55)
     strokeRect(x, y, rw, rh, RUG_BORDER, 0.6, 5)
     strokeRect(x + 14, y + 14, rw - 28, rh - 28, RUG_BORDER, 0.35, 3)
@@ -406,11 +411,30 @@ export const drawMinimap = (ctx: CanvasRenderingContext2D, map: GameMap, canvasW
     }
   }
 
-  // Nest territories + the resident spider, so the preview warns exactly like the arena.
+  // Lair territories + the resident grabber, so the preview warns exactly like the
+  // arena: webbed spider dens, or the hive's teal abduction pads with a saucer.
   const nests = map.nests
+  const ufoLairs = MONSTER_BY_MAP[map.index] === Monster.Alien
   for (let n = 0; n < nests.length; n += 2) {
     const cx = (nests[n]! + 0.5) * MAP_TILE
     const cy = (nests[n + 1]! + 0.5) * MAP_TILE
+    if (ufoLairs) {
+      rect(cx - 30, cy - 30, 60, 60, 0x0a141c, 0.55)
+      for (const frac of [0.7, 1]) {
+        const r = NEST_RADIUS * frac
+        const segs = 16
+        for (let k = 0; k < segs; k++) {
+          const a = (k / segs) * Math.PI * 2 + frac * 2.3
+          rect(cx + Math.cos(a) * r - 4, cy + Math.sin(a) * r - 2, 8, 4, 0x2fd4b8, 0.2)
+        }
+      }
+      // The saucer: hull disc, glass dome, running lights.
+      rect(cx - 22, cy - 46, 44, 10, 0x8fa4c4)
+      rect(cx - 10, cy - 54, 20, 9, 0xbfffe8, 0.9)
+      rect(cx - 14, cy - 35, 4, 4, 0x2fd4b8)
+      rect(cx + 10, cy - 35, 4, 4, 0x2fd4b8)
+      continue
+    }
     rect(cx - 26, cy - 26, 52, 52, 0x0d0a16, 0.5)
     for (const frac of [0.55, 0.8, 1]) {
       const r = NEST_RADIUS * frac

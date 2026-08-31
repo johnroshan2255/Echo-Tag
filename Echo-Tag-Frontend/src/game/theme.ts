@@ -246,7 +246,8 @@ export const PORTAL_COLOR = 0x9d82ea
 export const PORTAL_CORE = 0xe6dcff
 /** Nest spiders and their web carpets. */
 export const NEST_WEB_COLOR = 0xcfc8e8
-export const NEST_SPIDER_BODY = 0x241d33
+export const NEST_SPIDER_BODY = 0x322947
+export const NEST_SPIDER_LEG = 0x4a3f66
 export const NEST_SPIDER_EYE = 0xff5040
 
 /**

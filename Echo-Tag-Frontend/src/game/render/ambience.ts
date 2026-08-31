@@ -60,6 +60,9 @@ export interface AmbienceLayer {
   nextFlockMs: number
   flockJustStarted: boolean
   rngState: () => number
+  /** The hive replaces the wildlife: bats become a UFO squadron, spiders become alien
+   * critters, fireflies go teal. Set per map by seedAmbience. */
+  hiveStyle: boolean
 }
 
 export const createAmbienceLayer = (texture: Texture): AmbienceLayer => {
@@ -116,12 +119,19 @@ export const createAmbienceLayer = (texture: Texture): AmbienceLayer => {
     nextFlockMs: 9000,
     flockJustStarted: false,
     rngState: cosmeticRng(0xba7ba7),
+    hiveStyle: false,
   }
 }
 
 /** Re-seeds firefly homes and spider haunts for a map. Call on map change. */
 export const seedAmbience = (layer: AmbienceLayer, map: GameMap): void => {
   const rng = cosmeticRng(0xf17ef1 + map.index * 131)
+  // The hive is another biosphere: teal spores for fireflies, green alien critters for
+  // spiders, and a silent UFO squadron where the bats would be.
+  layer.hiveStyle = map.index === 3
+  for (const p of layer.particles) p.tint = layer.hiveStyle ? 0x7dffe0 : FIREFLY_TINT
+  for (const p of layer.spiders) p.tint = layer.hiveStyle ? 0x3f7a4a : SPIDER_TINT
+  for (const p of layer.bats) p.tint = layer.hiveStyle ? 0x8fa4c4 : BAT_TINT
   for (let i = 0; i < FIREFLY_COUNT; i++) {
     const tile = map.openTiles[Math.floor(rng() * map.openTiles.length)]!
     layer.baseX[i] = (tile % MAP_TILES_X) * MAP_TILE + rng() * MAP_TILE
@@ -190,13 +200,26 @@ export const renderAmbience = (layer: AmbienceLayer, nowMs: number, camX: number
     const dist = age * 430 // wing speed in world units/sec
     for (let i = 0; i < BAT_COUNT; i++) {
       const p = layer.bats[i]!
-      const lag = i * 46 + Math.sin(t * 2.1 + i * 2.7) * 22 // stagger + jostle
-      const weave = Math.sin(t * 3.4 + i * 1.9) * 46
-      p.x = layer.batOriginX + layer.batDirX * (dist - lag) - layer.batDirY * weave
-      p.y = layer.batOriginY + layer.batDirY * (dist - lag) + layer.batDirX * weave
-      // The flap: vertical squash at wingbeat rate.
-      p.scaleY = ((BAT_SIZE / 8) * (0.45 + Math.abs(Math.sin(t * 14 + i)))) / 1.4
-      p.alpha = 0.85
+      if (layer.hiveStyle) {
+        // A UFO squadron: flat silent saucers in a staggered vee, gliding with a slow
+        // bob — no wingbeat, which is exactly what makes them read as machines.
+        const lag = i * 64
+        const spread = (i - (BAT_COUNT - 1) / 2) * 54
+        p.x = layer.batOriginX + layer.batDirX * (dist - lag) - layer.batDirY * spread
+        p.y = layer.batOriginY + layer.batDirY * (dist - lag) + layer.batDirX * spread + Math.sin(t * 2 + i) * 6
+        p.scaleX = (BAT_SIZE / 8) * 2.4
+        p.scaleY = (BAT_SIZE / 8) * 0.7
+        p.alpha = 0.8
+      } else {
+        const lag = i * 46 + Math.sin(t * 2.1 + i * 2.7) * 22 // stagger + jostle
+        const weave = Math.sin(t * 3.4 + i * 1.9) * 46
+        p.x = layer.batOriginX + layer.batDirX * (dist - lag) - layer.batDirY * weave
+        p.y = layer.batOriginY + layer.batDirY * (dist - lag) + layer.batDirX * weave
+        // The flap: vertical squash at wingbeat rate.
+        p.scaleX = BAT_SIZE / 8
+        p.scaleY = ((BAT_SIZE / 8) * (0.45 + Math.abs(Math.sin(t * 14 + i)))) / 1.4
+        p.alpha = 0.85
+      }
     }
     if (dist > 2100) {
       layer.batStartedMs = -1

@@ -3,7 +3,6 @@ import { describe, it } from 'node:test'
 import {
   MAP_TILE,
   MAX_PLAYERS,
-  NEST_PENALTY_MS,
   PORTAL_COOLDOWN_MS,
   TICK_MS,
   TOOL_WEB,
@@ -13,7 +12,7 @@ import {
 import { NO_SLOT, RoundPhase } from '../types.ts'
 import { queueAbility } from './monster.ts'
 import { enterPhase, stepWorld } from './step.ts'
-import { setIt } from './tag.ts'
+import { enterTurning, setIt } from './tag.ts'
 import { addPlayer, createWorld, type World } from './world.ts'
 
 /**
@@ -64,27 +63,96 @@ describe('portals', () => {
   })
 })
 
-describe('nest spiders', () => {
-  it('catches a runner who lingers in the territory: penalty, far respawn, immunity', () => {
+describe('lair grabbers (nest spiders / hive UFOs)', () => {
+  /** Steps until the grabber catches slot `victim`; returns the tick count, or -1. */
+  const runUntilCaught = (w: ReturnType<typeof playing>, inputs: Uint8Array, victim: number, max = 60): number => {
+    for (let t = 0; t < max; t++) {
+      const ev = stepWorld(w, inputs)
+      if (ev.hazardCaught === victim) return t
+    }
+    return -1
+  }
+
+  it('HOLDS a lingering runner — no score charge, input dead, dragged toward the lair', () => {
     const w = playing(2, 1) // Pillars: nests at (9,16), (37,15), (20,17)
     const inputs = new Uint8Array(MAX_PLAYERS)
     setIt(w, 0)
-    park(w, 0, 20, 2) // the monster, far away — spiders ignore it anyway
+    park(w, 0, 20, 2) // the monster, far away — grabbers ignore it anyway
     park(w, 1, 36, 15) // inside the (37,15) nest's territory
-    const nestX = MAP_TILE * 37.5
-    const nestY = MAP_TILE * 15.5
+    assert.ok(runUntilCaught(w, inputs, 1) >= 0, 'the grabber catches a lingering runner')
+    assert.notEqual(w.heldByNest[1], NO_SLOT, 'the victim is held, not killed')
+    const nest = w.heldByNest[1]!
 
-    let killedAt = -1
-    for (let t = 0; t < 80 && killedAt < 0; t++) {
-      const ev = stepWorld(w, inputs)
-      if (ev.hazardKill === 1) killedAt = t
+    // Held: pinned to the grabber, immobile, and NOT charged any It-time.
+    inputs[1] = 8 | (3 << 4) // they mash west — it feeds the struggle, not movement
+    stepWorld(w, inputs)
+    assert.equal(w.x[1], w.nestX[nest], 'pinned to the grabber (x)')
+    assert.equal(w.y[1], w.nestY[nest], 'pinned to the grabber (y)')
+    assert.equal(w.itTimeMs[1], 0, 'being held costs no score-time')
+
+    // The hold breaks; struggling makes it brief. Escape grants a breath of immunity.
+    let freedAfter = -1
+    for (let t = 0; t < 200 && freedAfter < 0; t++) {
+      stepWorld(w, inputs)
+      if (w.heldByNest[1] === NO_SLOT) freedAfter = t
     }
-    assert.ok(killedAt >= 0, 'the spider catches a lingering runner')
-    assert.equal(w.itTimeMs[1], NEST_PENALTY_MS, 'the kill costs score-time')
-    const dx = w.x[1]! - nestX
-    const dy = w.y[1]! - nestY
-    assert.ok(Math.sqrt(dx * dx + dy * dy) > 1000, 'respawned far from the nest')
-    assert.ok(w.tick < w.immuneUntilTick[1]!, 'respawn immunity granted')
+    assert.ok(freedAfter >= 0, 'the victim struggles free')
+    assert.ok(w.tick < w.immuneUntilTick[1]!, 'escape immunity granted')
+    assert.equal(w.itTimeMs[1], 0, 'still no score charge after the escape')
+  })
+
+  it('struggling frees you roughly twice as fast as going limp', () => {
+    const hold = (struggle: boolean): number => {
+      const w = playing(2, 1)
+      const inputs = new Uint8Array(MAX_PLAYERS)
+      setIt(w, 0)
+      park(w, 0, 20, 2)
+      park(w, 1, 36, 15)
+      assert.ok(runUntilCaught(w, inputs, 1) >= 0)
+      inputs[1] = struggle ? 8 | (3 << 4) : 0
+      let held = 0
+      while (w.heldByNest[1] !== NO_SLOT && held < 300) {
+        stepWorld(w, inputs)
+        held++
+      }
+      return held
+    }
+    const limp = hold(false)
+    const fighting = hold(true)
+    assert.ok(fighting < limp * 0.65, `struggling (${fighting} ticks) beats limp (${limp} ticks)`)
+  })
+
+  it('holds ONE victim at a time — the second runner stays free', () => {
+    const w = playing(3, 1)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    setIt(w, 0)
+    park(w, 0, 20, 2)
+    park(w, 1, 36, 15) // both runners inside the same territory
+    park(w, 2, 37, 14)
+    let caught = NO_SLOT
+    for (let t = 0; t < 60 && caught === NO_SLOT; t++) {
+      const ev = stepWorld(w, inputs)
+      if (ev.hazardCaught !== NO_SLOT) caught = ev.hazardCaught
+    }
+    assert.notEqual(caught, NO_SLOT, 'someone got grabbed')
+    const other = caught === 1 ? 2 : 1
+    for (let t = 0; t < 20; t++) stepWorld(w, inputs)
+    assert.equal(w.heldByNest[other], NO_SLOT, 'the grabber has only two hands')
+  })
+
+  it('releases its victim the moment the monster takes them', () => {
+    const w = playing(2, 1)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    setIt(w, 0)
+    park(w, 0, 20, 2)
+    park(w, 1, 36, 15)
+    assert.ok(runUntilCaught(w, inputs, 1) >= 0)
+    const nest = w.heldByNest[1]!
+    // The ghost reaches the pinned victim: the tag starts their metamorphosis.
+    enterTurning(w, 1)
+    stepWorld(w, inputs)
+    assert.equal(w.heldByNest[1], NO_SLOT, 'the grabber wants prey, not a peer')
+    assert.notEqual(w.nestState[nest], 4, 'the hold ended')
   })
 
   it('ignores the It entirely', () => {
@@ -95,9 +163,20 @@ describe('nest spiders', () => {
     park(w, 1, 36, 15) // the MONSTER stands in the territory
     for (let t = 0; t < 60; t++) {
       const ev = stepWorld(w, inputs)
-      assert.equal(ev.hazardKill, NO_SLOT, 'monsters are not prey')
+      assert.equal(ev.hazardCaught, NO_SLOT, 'monsters are not prey')
     }
     assert.equal(w.itTimeMs[1]! > 0, true, 'still accruing It-time, unharmed')
+  })
+
+  it('the hive has UFO lairs with the same rules', () => {
+    const w = playing(2, 3) // Warrens: UFO anchors at (20,4) and (20,18)
+    const inputs = new Uint8Array(MAX_PLAYERS)
+    setIt(w, 0)
+    park(w, 0, 3, 19)
+    park(w, 1, 20, 4.8) // under the (20,4) saucer
+    assert.ok(runUntilCaught(w, inputs, 1) >= 0, 'the tractor beam catches a wanderer')
+    assert.notEqual(w.heldByNest[1], NO_SLOT)
+    assert.equal(w.itTimeMs[1], 0, 'abduction costs no score-time either')
   })
 })
 

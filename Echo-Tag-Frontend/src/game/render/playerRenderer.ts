@@ -144,6 +144,11 @@ export const renderPlayers = (
       wx += Math.sin(nowMs * 0.055 + anim.phase[p]!) * tremor
       wy += Math.cos(nowMs * 0.047 + anim.phase[p]! * 1.3) * tremor
     }
+    // In a grabber's grip: the whole body thrashes — the struggle must read from afar.
+    if (world.heldByNest[p] !== NO_SLOT) {
+      wx += Math.sin(nowMs * 0.09 + anim.phase[p]!) * 2.6
+      wy += Math.cos(nowMs * 0.12 + anim.phase[p]! * 1.4) * 2
+    }
 
     const vx = world.vx[p]!
     const vy = world.vy[p]!
@@ -274,19 +279,29 @@ export const renderPlayers = (
           oy += Math.sin(nowMs * 0.0024 + phase + (part === Part.ArmR ? 2.6 : 0)) * 0.4 * CELL_WORLD
         }
       } else if (spider && !ko) {
-        // The cave spider: everything squashes low and wide, and all four limb columns
-        // splay into eight skittering legs. Cell size grows with the spread so the wider
-        // body stays a solid mass instead of striping.
-        oy = oy * 0.5 + PLAYER_RADIUS * 0.2
-        ox *= 1.25
-        cellScaleX *= 1.35
+        // The cave spider, properly: a two-lobe body (small head with eyes, big round
+        // abdomen behind it) and EIGHT arched legs — arm cells make the raised inner
+        // segments, leg cells the planted outer tips, four per side, skittering.
         if (part === Part.ArmL || part === Part.ArmR || part === Part.LegL || part === Part.LegR) {
           const side = part === Part.ArmL || part === Part.LegL ? -1 : 1
-          const legI = gy & 3 // four legs per side out of the limb rows
-          ox = side * (15 + legI * 4.5)
-          oy = (legI - 1.5) * 5.5 + PLAYER_RADIUS * 0.25
-          if (moving) oy += Math.sin(dist * 0.4 + legI * 1.7 + (side > 0 ? 0 : 2.2)) * 2.6
-          cellScaleY *= 0.8
+          const legI = gy & 3 // which of the four legs on this side
+          const inner = part === Part.ArmL || part === Part.ArmR
+          // Root at the body's flank, arch up over the knee, plant the tip wide and low.
+          ox = side * (inner ? 15 + legI * 2 : 26 + legI * 3.5)
+          oy = -4 + legI * 5 + (inner ? -6 : 4)
+          const skitter = moving
+            ? Math.sin(dist * 0.45 + legI * 1.7 + (side > 0 ? 0 : 2.2)) * 3
+            : Math.sin(nowMs * 0.002 + legI * 1.3) * 0.8
+          oy += inner ? 0 : skitter
+          cellScaleX *= 1.7
+          cellScaleY *= 0.9
+        } else {
+          // Body lobes: head (with the eyes) front-top, abdomen big and round below.
+          const abdomen = part === Part.Torso
+          oy = oy * 0.45 + PLAYER_RADIUS * 0.2 + (abdomen ? 3 : -2)
+          ox *= abdomen ? 1.5 : 1.1
+          cellScaleX *= abdomen ? 1.9 : 1.5
+          cellScaleY *= abdomen ? 1.5 : 1.3
         }
       } else if (alien && !ko) {
         // The hive alien: walk cycle first, then the reshape — dome head, slim body.

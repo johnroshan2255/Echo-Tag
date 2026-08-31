@@ -28,7 +28,8 @@
     "check": "npm run build && npm run size && npm run check:browser",
     "crop": "node tools/check/crop.ts",
     "check:mp": "node tools/check/mp-probe.ts && node tools/check/mp-check.ts",
-    "package": "npm run build && cd Echo-Tag-Frontend/dist && rm -f ../../echo-tag-poki.zip && zip -qr ../../echo-tag-poki.zip . -x '*.map' -x '*.br' -x '*.gz' && cd ../.. && echo 'echo-tag-poki.zip:' && du -h echo-tag-poki.zip"
+    "package": "npm run build && cd Echo-Tag-Frontend/dist && rm -f ../../echo-tag-poki.zip && zip -qr ../../echo-tag-poki.zip . -x '*.map' -x '*.br' -x '*.gz' && cd ../.. && echo 'echo-tag-poki.zip:' && du -h echo-tag-poki.zip",
+    "package:web": "npm run build && rm -rf .tmp-webdist && cp -R Echo-Tag-Frontend/dist .tmp-webdist && node -e \"const f='.tmp-webdist/index.html';const fs=require('fs');fs.writeFileSync(f,fs.readFileSync(f,'utf8').split('\\n').filter(l=>!l.includes('poki-sdk')).join('\\n'))\" && cd .tmp-webdist && rm -f ../echo-tag-web.zip && zip -qr ../echo-tag-web.zip . -x '*.map' -x '*.br' -x '*.gz' && cd .. && rm -rf .tmp-webdist && echo 'echo-tag-web.zip (portal-neutral, no Poki SDK):' && du -h echo-tag-web.zip"
   },
   "devDependencies": {
     "playwright": "^1.62.1",

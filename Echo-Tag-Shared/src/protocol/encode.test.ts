@@ -52,7 +52,7 @@ describe('snapshot codec', () => {
     assert.equal(snap.abilityCdTicks, Math.min(255, Math.max(0, w.abilityReadyTick - w.tick)))
   })
 
-  it('round-trips nest spiders and one-tick events on the forest map', () => {
+  it('round-trips lair grabbers, the held victim, and one-tick events', () => {
     const w = createWorld(9, 1) // Pillars: three nests
     addPlayer(w, false)
     addPlayer(w, false)
@@ -60,14 +60,15 @@ describe('snapshot codec', () => {
     const inputs = new Uint8Array(MAX_PLAYERS)
     while (w.phase === RoundPhase.Countdown) stepWorld(w, inputs)
     setIt(w, 0)
-    // Park the runner in a nest territory and step until the spider kills — the event
-    // must ride the very snapshot written that tick.
+    // Park the runner in a nest territory and step until the grabber CATCHES them — the
+    // event and the held-slot must ride the very snapshots written those ticks.
     w.x[1] = 36 * 80
     w.y[1] = 15 * 80
     const buf = new ArrayBuffer(SNAPSHOT_MAX_BYTES)
     const snap = createSnapshot()
-    let sawKill = false
-    for (let t = 0; t < 80 && !sawKill; t++) {
+    let sawCatch = false
+    let sawHeld = false
+    for (let t = 0; t < 120 && !(sawCatch && sawHeld); t++) {
       stepWorld(w, inputs)
       const len = writeSnapshot(w, w.map.index, new DataView(buf))
       readSnapshot(new DataView(buf, 0, len), snap)
@@ -75,12 +76,17 @@ describe('snapshot codec', () => {
       for (let n = 0; n < snap.nestCount; n++) {
         assert.equal(snap.nestX[n], Math.round(w.nestX[n]!), `nestX[${n}] at t=${t}`)
         assert.equal(snap.nestState[n], w.nestState[n], `nestState[${n}] at t=${t}`)
+        if (snap.nestState[n] === 4) {
+          assert.equal(snap.nestHeld[n], w.nestTarget[n], `nestHeld[${n}] at t=${t}`)
+          if (snap.nestHeld[n] === 1) sawHeld = true
+        }
       }
-      if (snap.hazardKill === 1) sawKill = true
-      // Player positions must stay intact on every tick regardless of nest churn.
+      if (snap.hazardCaught === 1) sawCatch = true
+      // Player positions must stay intact on every tick regardless of grabber churn.
       assert.equal(snap.x[0], Math.round(w.x[0]!))
       assert.equal(snap.y[1], Math.round(w.y[1]!))
     }
-    assert.ok(sawKill, 'the hazard-kill event crosses the wire on its tick')
+    assert.ok(sawCatch, 'the catch event crosses the wire on its tick')
+    assert.ok(sawHeld, 'the held slot crosses the wire while the grip lasts')
   })
 })

@@ -359,8 +359,11 @@ const warrens = (): GameMap => {
     // A two-way portal between opposite corner chambers: the hive's transit tubes.
     5, 4, 35, 18,
     35, 18, 5, 4,
+  ], [
+    // Abduction UFOs hover over the central chambers: the hive's grabbers. Same lair
+    // mechanics as the nest spiders, drawn as saucers with tractor beams.
+    20, 4, 20, 18,
   ])
-  // No nests: the alien's beam is this map's danger.
 }
 
 export const MAPS: readonly GameMap[] = [foundry(), pillars(), serpentine(), warrens()]

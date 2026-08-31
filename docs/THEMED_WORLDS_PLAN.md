@@ -8,6 +8,13 @@
 > (+~40B worst case, round-trip test in `protocol/encode.test.ts`). Mechanics tests:
 > `sim/monsters.test.ts`. Deviation from the plan: the wraith is a pure visual variant
 > (full-length trail) so the canonical trail tests on map 1 keep their meaning.
+>
+> REVISED per owner feedback: the lair hazard is a HOLD, not a kill — no score penalty.
+> A grabber (nest spider on manor/forest, abduction UFO on the hive — `sim/nest.ts`)
+> catches ONE victim at a time, pins their input, and drags them toward its lair; they
+> struggle free (movement input halves the hold) or the monster tags them, which makes
+> the grabber release instantly. The hive's ambience is UFO squadrons and alien
+> critters instead of bats, and its "rugs" are recessed deck panels.
 
 The ask: maps must stop being "same theme, different rooms." Each map becomes a world —
 pixelated forest, spider cave, alien hive — with its own monster (the It player's form)

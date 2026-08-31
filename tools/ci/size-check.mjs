@@ -31,7 +31,10 @@ const POKI_CAP = 8 * 1024
 const isBoot = (name) =>
   name === 'index.html' || /(^|\/)(index|boot|rolldown-runtime)\.[^/]*\.(js|css)$/.test(name)
 const isEngine = (name) => /(^|\/)engine\.[^/]*\.js$/.test(name)
-const isMedia = (name) => /\.(mp3|ogg|wav|m4a|png|jpg|webp|avif)$/.test(name)
+/** Share/install assets: fetched by link scrapers and home-screen installs, never by
+ * gameplay — they ride the zip but are not part of what a player downloads to play. */
+const isShare = (name) => /^(og\.png|icon-\d+\.png|manifest\.webmanifest)$/.test(name)
+const isMedia = (name) => !isShare(name) && /\.(mp3|ogg|wav|m4a|png|jpg|webp|avif)$/.test(name)
 
 const walk = async (dir) => {
   const out = []
@@ -74,12 +77,13 @@ const sum = (pred) => rows.filter((r) => pred(r.name)).reduce((s, r) => s + r.kb
 const boot = sum(isBoot)
 const engine = sum(isEngine)
 const media = sum(isMedia)
-const code = rows.reduce((s, r) => s + r.kb, 0) - media
-const everything = code + media
+const share = sum(isShare)
+const code = rows.reduce((s, r) => s + r.kb, 0) - media - share
+const everything = code + media + share
 
 console.log('\n  transfer size (brotli where available)\n')
 for (const r of rows) {
-  const tag = isBoot(r.name) ? 'boot  ' : isEngine(r.name) ? 'engine' : isMedia(r.name) ? 'media ' : '      '
+  const tag = isBoot(r.name) ? 'boot  ' : isEngine(r.name) ? 'engine' : isShare(r.name) ? 'share ' : isMedia(r.name) ? 'media ' : '      '
   console.log(
     `  ${r.kb.toFixed(1).padStart(8)} KB  ${tag}  ${r.name}${r.compressed ? '' : '  (raw, under compression threshold)'}`,
   )
@@ -96,6 +100,7 @@ line('boot', boot, BUDGETS.boot)
 line('engine', engine, BUDGETS.engine)
 line('code', code, BUDGETS.code)
 line('media', media, BUDGETS.media)
+console.log(`    share  ${share.toFixed(1).padStart(9)} KB  (og image + install icons — never fetched by gameplay)`)
 console.log(`    everything ${everything.toFixed(1).padStart(7)} KB of Poki's ${POKI_CAP} KB initial-download cap  (${((everything / POKI_CAP) * 100).toFixed(0)}%)`)
 
 const failures = []

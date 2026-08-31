@@ -44,8 +44,8 @@ export interface StepEvents {
   tagTo: Slot
   /** True on the tick the round clock ran out. */
   roundEnded: boolean
-  /** Player a nest spider killed this tick (NO_SLOT when none): sting + penalty floater. */
-  hazardKill: Slot
+  /** Player a lair grabber CAUGHT this tick (NO_SLOT when none): sting + struggle banner. */
+  hazardCaught: Slot
   /** Player who teleported through a portal this tick (NO_SLOT when none): warp sound. */
   portalUsed: Slot
 }

@@ -1,4 +1,5 @@
 import { CHAT_MAX_LEN, CHAT_MIN_INTERVAL_MS } from '@echo-tag/shared'
+import { TG } from '../platform/i18nGame.ts'
 import { CHAT_ICON, CLOSE_ICON, SEND_ICON, drawIconToCanvas } from './render/pixelIcons.ts'
 
 /**
@@ -86,7 +87,7 @@ export const createChatUi = (opts: {
   header.style.cssText =
     `display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:${CHALK_BORDER};`
   const title = document.createElement('div')
-  title.textContent = 'ROOM CHAT'
+  title.textContent = TG.chatTitle
   title.style.cssText = `font:${FONT};font-weight:700;letter-spacing:2px;color:#fff3dc;`
   const closeBtn = document.createElement('button')
   closeBtn.style.cssText =
@@ -105,7 +106,7 @@ export const createChatUi = (opts: {
     `flex:1;overflow-y:auto;padding:10px 12px;font:${FONT};line-height:1.65;color:#e8e2f4;` +
     '-webkit-overflow-scrolling:touch;overscroll-behavior:contain;'
   const hint = document.createElement('div')
-  hint.textContent = 'say something — nothing here is saved.'
+  hint.textContent = TG.chatHint
   hint.style.cssText = 'opacity:.45;'
   list.appendChild(hint)
 

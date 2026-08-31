@@ -1,5 +1,5 @@
 import { MAP_TILE, MAP_TILES_X, MAP_TILES_Y, MAP_W, MAP_H, NEST_RADIUS, TILE_FURNITURE, TILE_WALL } from '@echo-tag/shared/constants'
-import { Decor, type GameMap } from '@echo-tag/shared'
+import { Decor, Monster, MONSTER_BY_MAP, type GameMap } from '@echo-tag/shared'
 import { Container, Graphics } from 'pixi.js'
 import {
   cosmeticRng,
@@ -136,7 +136,8 @@ export const layoutArena = (layer: ArenaLayer, map: GameMap): void => {
     }
   }
 
-  // Rugs go under everything that stands on the floor.
+  // Rugs go under everything that stands on the floor. The hive has no carpets: the
+  // same authored rectangles become recessed deck panels with a glowing trim instead.
   const decor = map.decor
   for (let i = 0; i < decor.length; i += 3) {
     if (decor[i] !== Decor.Rug) continue
@@ -144,6 +145,11 @@ export const layoutArena = (layer: ArenaLayer, map: GameMap): void => {
     const y = decor[i + 2]! * MAP_TILE
     const rw = MAP_TILE * 3
     const rh = MAP_TILE * 2
+    if (theme.panelSeams) {
+      g.rect(x, y, rw, rh).fill({ color: 0x131b28, alpha: 0.9 })
+      g.rect(x, y, rw, rh).stroke({ color: theme.wallRim, alpha: 0.25, width: 3 })
+      continue
+    }
     g.rect(x, y, rw, rh).fill({ color: RUG_FILL, alpha: 0.55 })
     g.rect(x, y, rw, rh).stroke({ color: RUG_BORDER, alpha: 0.6, width: 5 })
     g.rect(x + 14, y + 14, rw - 28, rh - 28).stroke({ color: RUG_BORDER, alpha: 0.35, width: 3 })
@@ -407,12 +413,27 @@ export const layoutArena = (layer: ArenaLayer, map: GameMap): void => {
     }
   }
 
-  // Nest territories: a webbed carpet ring telegraphing exactly where the hazard bites —
-  // a spider death must never feel unannounced. Deterministic pattern, no rng.
+  // Lair territories, telegraphed exactly where the grabber bites — a grab must never
+  // feel unannounced. Spider lairs get a webbed carpet ring; the hive's UFO anchors get
+  // a teal abduction circle scorched into the deck. Deterministic patterns, no rng.
   const nests = map.nests
+  const ufoLairs = MONSTER_BY_MAP[map.index] === Monster.Alien
   for (let n = 0; n < nests.length; n += 2) {
     const cx = (nests[n]! + 0.5) * MAP_TILE
     const cy = (nests[n + 1]! + 0.5) * MAP_TILE
+    if (ufoLairs) {
+      g.rect(cx - 30, cy - 30, 60, 60).fill({ color: 0x0a141c, alpha: 0.55 }) // scorched pad
+      for (const frac of [0.7, 1]) {
+        const r = NEST_RADIUS * frac
+        const segs = 16
+        for (let k = 0; k < segs; k++) {
+          const a = (k / segs) * Math.PI * 2 + frac * 2.3
+          g.rect(cx + Math.cos(a) * r - 4, cy + Math.sin(a) * r - 2, 8, 4)
+            .fill({ color: 0x2fd4b8, alpha: 0.2 })
+        }
+      }
+      continue
+    }
     g.rect(cx - 26, cy - 26, 52, 52).fill({ color: 0x0d0a16, alpha: 0.5 }) // the den stain
     for (const frac of [0.55, 0.8, 1]) {
       const r = NEST_RADIUS * frac

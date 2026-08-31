@@ -62,6 +62,7 @@ import { BODY, ECHO } from './render/templates.ts'
 import { renderMarkers } from './render/wardrobeMarkers.ts'
 import { pokiCommercialBreak, pokiGameplayStart, pokiGameplayStop } from '../platform/poki.ts'
 import { FOG_COLOR, FOG_MAX_ALPHA, HIDDEN_VISION_SCALE, VISION_CLEAR, VISION_MAX } from './theme.ts'
+import { TG } from '../platform/i18nGame.ts'
 
 /**
  * The walk-through world (docs/adr/0005).
@@ -312,12 +313,11 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   banner.show(`${world.map.name} · ${MONSTER_NAMES[world.map.index]}`)
 
   // ── Hazard & portal feedback: the world's own events, one path for net and local ──
-  const onHazardKill = (slot: number): void => {
+  const onHazardCaught = (slot: number): void => {
     if (slot !== mySlot) return
-    // You were caught: the respawn already happened in the sim — snap the camera to the
-    // new spot, say what it cost, and sting.
-    snapCamera(cam, world.x[slot]!, world.y[slot]!)
-    banner.show('CAUGHT! +5s')
+    // You are in its grip: input is now the struggle, and the monster knows where you
+    // are. No score changes hands — being pinned in the open IS the price.
+    banner.show(monsterOf(world) === Monster.Alien ? TG.bannerAbducted : TG.bannerCaught)
     audio.sting(0.9)
   }
   const onPortalUsed = (slot: number): void => {
@@ -379,7 +379,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     
     if (isConfirm) {
       const cancelBtn = document.createElement('button')
-      cancelBtn.textContent = 'CANCEL'
+      cancelBtn.textContent = TG.cancel
       cancelBtn.style.cssText = btnStyle + 'background:#262048;color:#e9ddff;'
       cancelBtn.addEventListener('click', () => overlay.remove())
       // Active state styling simulation
@@ -389,7 +389,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     }
     
     const okBtn = document.createElement('button')
-    okBtn.textContent = isConfirm ? 'LEAVE' : 'OK'
+    okBtn.textContent = isConfirm ? TG.leave : TG.ok
     okBtn.style.cssText = btnStyle + 'background:#ffc07a;color:#241505;border-color:#d49b5f;'
     okBtn.addEventListener('click', () => {
       overlay.remove()
@@ -419,7 +419,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   leaveBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault()
     e.stopPropagation()
-    showModal('Are you sure you want to leave the game?', true, () => {
+    showModal(TG.leaveConfirm, true, () => {
       net?.destroy()
       location.search = ''
     })
@@ -515,10 +515,10 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       onTagged(anim, to, performance.now())
       audio.onTag(world, (mySlot = net.mySlot), from, to)
     })
-    net.onHazard(onHazardKill)
+    net.onHazard(onHazardCaught)
     net.onPortal(onPortalUsed)
     net.onHostLeft(() => {
-      showModal('The host has left the game.', false, () => {
+      showModal(TG.hostLeft, false, () => {
         location.search = ''
       })
     })
@@ -633,7 +633,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       onTagged(anim, ev.tagTo, performance.now())
       audio.onTag(world, LOCAL_SLOT, ev.tagFrom, ev.tagTo)
     }
-    if (ev.hazardKill !== NO_SLOT) onHazardKill(ev.hazardKill)
+    if (ev.hazardCaught !== NO_SLOT) onHazardCaught(ev.hazardCaught)
     if (ev.portalUsed !== NO_SLOT) onPortalUsed(ev.portalUsed)
     if (ev.roundEnded) {
       // Between rounds is the platform's ad slot; audio stays silent for its duration.

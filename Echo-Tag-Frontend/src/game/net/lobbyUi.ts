@@ -1,6 +1,7 @@
 import { MAP_COUNT, MAP_TILES_X, MAP_TILES_Y, MAPS, MONSTER_NAMES, PLAYER_COLORS, ROUND_MINS_MAX, ROUND_MINS_MIN, RoundPhase } from '@echo-tag/shared'
 import type { LobbyView } from './room.ts'
 import { drawMinimap } from '../../boot/minimap.ts'
+import { TG } from '../../platform/i18nGame.ts'
 
 /**
  * The lobby / results overlay: plain DOM in the game's dusk-and-squares language.
@@ -27,8 +28,9 @@ export const createLobbyUi = (
   root.id = 'lobby'
   root.innerHTML = `
     <div id="lobby-card">
-      <h2 id="lobby-title">WAITING FOR PLAYERS</h2>
-      <p id="lobby-code" hidden>ROOM CODE <b></b><span>share it with your friends</span></p>
+      <h2 id="lobby-title">${TG.finding}</h2>
+      <p id="lobby-code" hidden>${TG.roomCode} <b></b><span>${TG.shareIt}</span></p>
+      <button id="lobby-invite" type="button" hidden>${TG.copyLink}</button>
       <p id="lobby-count"></p>
       <div id="lobby-roster"></div>
       <div id="lobby-bots" hidden>
@@ -52,7 +54,7 @@ export const createLobbyUi = (
         </div>
         <button id="map-plus" type="button" aria-label="next map">&#9654;</button>
       </div>
-      <button id="lobby-start" type="button" hidden>START ROUND</button>
+      <button id="lobby-start" type="button" hidden>${TG.start}</button>
       <p id="lobby-hint"></p>
     </div>`
   const style = document.createElement('style')
@@ -69,6 +71,13 @@ export const createLobbyUi = (
     #lobby-code b { display: block; color: #ffc07a; font-size: 34px; letter-spacing: .3em;
       margin: 6px 0 2px; }
     #lobby-code span { display: block; font-size: 11px; opacity: .8; }
+    /* The invite button: the acquisition loop — one tap turns a room into a shareable
+       link. Styled like the +/- chips, sized for thumbs. */
+    #lobby-invite { pointer-events: auto; cursor: pointer; margin: 0 0 14px; min-height: 40px;
+      padding: 10px 18px; border: 3px solid #3a3150; background: #262048; color: #e9ddff;
+      font: 800 12px/1 ui-monospace, monospace; letter-spacing: .12em; }
+    #lobby-invite:active { background: #3a3150; }
+    #lobby-invite.copied { border-color: #7ccb66; color: #a4dd85; }
     #lobby-roster { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
       margin: 0 0 16px; max-width: 320px; }
     .lobby-dot { width: 22px; height: 22px; border: 3px solid rgba(0,0,0,.4); }
@@ -136,6 +145,30 @@ export const createLobbyUi = (
   const title = root.querySelector('#lobby-title') as HTMLElement
   const codeEl = root.querySelector('#lobby-code') as HTMLElement
   const codeVal = codeEl.querySelector('b') as HTMLElement
+  const inviteBtn = root.querySelector('#lobby-invite') as HTMLButtonElement
+  // The invite link: the current page with ?room=CODE — the same URL the refresh-rejoin
+  // flow already understands, so a clicked invite lands directly in this room.
+  let inviteResetTimer: ReturnType<typeof setTimeout> | undefined
+  inviteBtn.addEventListener('click', () => {
+    const code = codeVal.textContent ?? ''
+    if (code.length !== 5) return
+    const url = `${location.origin}${location.pathname}?room=${code}`
+    const done = (): void => {
+      inviteBtn.textContent = TG.copied
+      inviteBtn.classList.add('copied')
+      clearTimeout(inviteResetTimer)
+      inviteResetTimer = setTimeout(() => {
+        inviteBtn.textContent = TG.copyLink
+        inviteBtn.classList.remove('copied')
+      }, 1600)
+    }
+    try {
+      void navigator.clipboard.writeText(url).then(done, () => prompt(TG.copyLink, url))
+    } catch {
+      // Clipboard can be blocked in embedded contexts: show the URL for manual copying.
+      prompt(TG.copyLink, url)
+    }
+  })
   const countEl = root.querySelector('#lobby-count') as HTMLElement
   const roster = root.querySelector('#lobby-roster') as HTMLElement
   const botsRow = root.querySelector('#lobby-bots') as HTMLElement
@@ -201,14 +234,15 @@ export const createLobbyUi = (
 
       if (inLobby) {
         const seats = Math.min(12, view.humans + (view.isPrivate ? view.bots : 0))
-        title.textContent = view.isPrivate ? 'YOUR ROOM' : 'FINDING PLAYERS'
+        title.textContent = view.isPrivate ? TG.yourRoom : TG.finding
         codeEl.hidden = !view.isPrivate
+        inviteBtn.hidden = !view.isPrivate
         codeVal.textContent = view.code
-        countEl.textContent = view.isPrivate ? `${view.humans} / 12 PLAYERS` : `${view.humans} JOINED`
+        countEl.textContent = view.isPrivate ? `${view.humans} / 12 ${TG.players}` : `${view.humans} ${TG.joined}`
         botsRow.hidden = !(view.isPrivate && view.isHost)
-        botsLabel.textContent = `BOTS: ${view.bots}`
+        botsLabel.textContent = `${TG.bots}: ${view.bots}`
         minsRow.hidden = !(view.isPrivate && view.isHost)
-        minsLabel.textContent = `ROUND: ${view.roundMins} MIN`
+        minsLabel.textContent = `${TG.round}: ${view.roundMins} ${TG.min}`
         mapRow.hidden = false // Everyone sees the map preview…
         // …but only a private room's host can change it — the server rejects MSG.Map from
         // guests and from public rooms, so nobody gets arrows that silently do nothing.
@@ -225,10 +259,10 @@ export const createLobbyUi = (
         hint.textContent = view.isPrivate
           ? view.isHost
             ? canStart
-              ? `${seats} will play, ${view.roundMins} min — add bots or start with just your ${view.humans}`
-              : 'you need one more player — add a bot or share the code'
-            : `waiting for the host to start — ${view.roundMins} min round`
-          : `${view.humans} joined — starting shortly, bots fill the rest`
+              ? TG.hintCanStart(seats, view.roundMins, view.humans)
+              : TG.hintNeedOne
+            : TG.hintWaitHost(view.roundMins)
+          : TG.hintPublic(view.humans)
         roster.innerHTML = view.scores
           .map(
             (p) =>
@@ -236,13 +270,14 @@ export const createLobbyUi = (
           )
           .join('')
       } else {
-        title.textContent = 'ROUND OVER'
+        title.textContent = TG.roundOver
         codeEl.hidden = true
+        inviteBtn.hidden = true
         startBtn.hidden = true
         botsRow.hidden = true
         minsRow.hidden = true
         mapRow.hidden = true
-        hint.textContent = 'least time as the monster wins — next round starting'
+        hint.textContent = TG.hintResults
         // Winner = least It-time (#1). Loser = most — but only when strictly worst, so a
         // full-room tie never brands an arbitrary player.
         const worst = view.scores[view.scores.length - 1]
@@ -251,15 +286,15 @@ export const createLobbyUi = (
           .map((p, i) => {
             const tag =
               i === 0 && view.scores.length > 1
-                ? '<span class="lobby-tag win">WINNER</span>'
+                ? `<span class="lobby-tag win">${TG.winner}</span>`
                 : i === view.scores.length - 1 && secondWorst && worst!.itTimeMs > secondWorst.itTimeMs
-                  ? '<span class="lobby-tag lose">LOST</span>'
+                  ? `<span class="lobby-tag lose">${TG.lost}</span>`
                   : ''
             return (
               `<div class="lobby-row"><span class="who">` +
               `<span class="lobby-dot${p.isBot ? ' bot' : ''}" style="background:${hex(PLAYER_COLORS[p.colorSlot % PLAYER_COLORS.length]!)}"></span>` +
-              `#${i + 1}${p.isBot ? ' · bot' : ''}</span>` +
-              `<span>${tag} ${p.caught > 0 ? `<span style="opacity:.6">caught ${p.caught}x · </span>` : ''}${(p.itTimeMs / 1000).toFixed(1)}s</span></div>`
+              `#${i + 1}${p.isBot ? ` · ${TG.bot}` : ''}</span>` +
+              `<span>${tag} ${p.caught > 0 ? `<span style="opacity:.6">${TG.caught} ${p.caught}x · </span>` : ''}${(p.itTimeMs / 1000).toFixed(1)}s</span></div>`
             )
           })
           .join('')

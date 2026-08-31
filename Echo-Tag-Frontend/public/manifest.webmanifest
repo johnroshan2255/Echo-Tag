@@ -1,0 +1,14 @@
+{
+  "name": "Echo Tag",
+  "short_name": "Echo Tag",
+  "description": "Multiplayer ghost tag: don't be the monster when the clock runs out. 4 haunted worlds, 12 players, play free with friends.",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#161226",
+  "theme_color": "#161226",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

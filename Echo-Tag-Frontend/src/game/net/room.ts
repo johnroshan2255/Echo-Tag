@@ -86,7 +86,7 @@ export interface NetGame {
   useAbility(): void
   onLobby(cb: (view: LobbyView) => void): void
   onTag(cb: (from: number, to: number) => void): void
-  /** A nest spider killed `slot` this tick (score penalty + far respawn already applied). */
+  /** A lair grabber caught `slot` this tick — they are held until they struggle free. */
   onHazard(cb: (slot: number) => void): void
   /** `slot` warped through a portal this tick. */
   onPortal(cb: (slot: number) => void): void
@@ -359,17 +359,20 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     world.beamUntilTick = snap.tick + snap.beamTicksLeft
     world.beamReach = snap.beamReach
     world.abilityReadyTick = snap.tick + snap.abilityCdTicks
+    world.heldByNest.fill(NO_SLOT)
     for (let n = 0; n < MAX_NESTS && n < snap.nestCount; n++) {
       world.nestX[n] = snap.nestX[n]!
       world.nestY[n] = snap.nestY[n]!
       world.nestState[n] = snap.nestState[n]!
+      const held = snap.nestHeld[n]!
+      if (held !== NO_SLOT) world.heldByNest[held] = n
     }
 
     // Echo trails: identical reconstruction to the server, per ADR 0004.
     sampleHistory(world)
     rebuildEchoBodies(world)
 
-    if (snap.hazardKill !== NO_SLOT) hazardCb?.(snap.hazardKill)
+    if (snap.hazardCaught !== NO_SLOT) hazardCb?.(snap.hazardCaught)
     if (snap.portalUsed !== NO_SLOT) portalCb?.(snap.portalUsed)
 
     // The tag lands at the START of the metamorphosis (itSlot passes through NO_SLOT for
@@ -450,6 +453,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
         havePrediction &&
         world.active[mySlot] === 1 &&
         world.hiddenIn[mySlot] === NO_SLOT &&
+        world.heldByNest[mySlot] === NO_SLOT && // in a grabber's grip: input is the struggle
         world.tick >= world.unconsciousUntilTick[mySlot]! &&
         world.phase === 2
       ) {

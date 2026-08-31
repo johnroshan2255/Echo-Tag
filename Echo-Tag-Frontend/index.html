@@ -7,7 +7,21 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#161226" />
-    <title>Echo Tag</title>
+    <title>Echo Tag — multiplayer ghost tag with friends</title>
+    <meta name="description" content="Tag, but the monster is one of you. Chase friends through 4 haunted pixel worlds — ghost, spider, alien — 12 players, free, no download." />
+
+    <!-- Link previews: a shared ?room=CODE invite must unfurl as a game card, not a bare
+         URL — the unfurl IS the invitation. Relative image: Discord/Telegram/WhatsApp
+         resolve it against the page URL wherever the game is hosted. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Echo Tag — play with me!" />
+    <meta property="og:description" content="Multiplayer ghost tag: don't be the monster when the clock runs out. 4 haunted worlds, 12 players, free in your browser." />
+    <meta property="og:image" content="og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Installability: phones offer Add to Home Screen, so a player keeps a door back in. -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
 
     <!-- Poki SDK: loaded async, never blocks first paint. The game boots with or without it. -->
     <script src="https://game-cdn.poki.com/scripts/v2/poki-sdk.js" async></script>
@@ -58,8 +72,9 @@
         border: 3px solid #3a3150; box-shadow: 4px 4px 0 rgba(0,0,0,.35); }
       #mp button:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 rgba(0,0,0,.35); }
       #joinform { display: flex; gap: 0; pointer-events: auto; }
-      /* 16px minimum on the input, or iOS Safari zooms the whole page on focus. */
-      #joinform input { width: 9ch; font: 800 16px/1 ui-monospace, monospace;
+      /* 16px minimum on the input, or iOS Safari zooms the whole page on focus.
+         11ch: codes are 5 letters, but the localised placeholder (CODIGO) needs room. */
+      #joinform input { width: 11ch; font: 800 16px/1 ui-monospace, monospace;
         letter-spacing: .2em; text-transform: uppercase; outline: none; border-right: 0; }
       #joinform input:focus { border-color: var(--accent); }
       #joinform button { border-left: 0; }

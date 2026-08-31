@@ -175,21 +175,25 @@ export const BEAM_RANGE = 640 // world units, stopped early by the first wall
 export const BEAM_HALF_WIDTH = 26
 export const BEAM_COOLDOWN_MS = 6_000
 
-// ── Nest spiders (environmental hazard) ──────────────────────────────────────
-// Authored spider nests on some maps: wander into the webbed territory and the nest
-// spider lunges; hold contact for a beat and it catches you — you respawn at the spawn
-// point farthest from the nest and your score (time as It, lower is better) is penalised.
-// The It is ignored: monsters do not fear spiders.
+// ── Lair grabbers (environmental hazard: nest spiders / hive UFOs) ───────────
+// Authored lairs on some maps (spider nests on the manor and in the forest, UFOs over
+// the hive). Wander into the territory and the grabber lunges; hold contact for a beat
+// and it CATCHES you — you are held in its grip, input dead, dragged slowly toward its
+// lair, while the monster closes in. You can STRUGGLE free (movement input speeds the
+// escape), and if the monster tags you while held, the grabber releases its new peer at
+// once. One victim at a time; the It is ignored — monsters do not fear the wildlife.
+// No score is charged: being a sitting duck IS the price.
 export const MAX_NESTS = 4
-export const NEST_RADIUS = 130 // territory: enter it and the spider wakes
-export const NEST_LEASH = 300 // the spider gives up beyond this from home
+export const NEST_RADIUS = 130 // territory: enter it and the grabber wakes
+export const NEST_LEASH = 300 // the grabber gives up beyond this from home
 export const NEST_SPEED = 300 // units/sec while lunging — faster than you, briefly
 export const NEST_RETURN_SPEED = 170
-export const NEST_KILL_R = 30 // contact radius
-export const NEST_KILL_MS = 400 // contact must hold this long — brushing past is escapable
-export const NEST_PENALTY_MS = 5_000 // added straight to itTimeMs: the score cost
-export const NEST_REST_MS = 3_000 // the spider feeds before hunting again
-export const NEST_RESPAWN_IMMUNITY_MS = 2_000
+export const NEST_GRAB_R = 30 // contact radius
+export const NEST_GRAB_MS = 400 // contact must hold this long — brushing past is escapable
+export const NEST_HOLD_MS = 4_000 // held this long at most; struggling halves it
+export const NEST_CARRY_SPEED = 70 // dragged toward the lair while held
+export const NEST_ESCAPE_IMMUNITY_MS = 1_500 // free of re-grabs (and tags) for a breath
+export const NEST_REST_MS = 2_500 // the grabber sulks after losing its catch
 
 // ── Portals ──────────────────────────────────────────────────────────────────
 // Linked teleport pads. Step on one and you are at its twin; a short per-player cooldown

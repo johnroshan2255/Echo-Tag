@@ -31,8 +31,8 @@ import type { World } from '../sim/world.ts'
  *   u8  beamPhase     0 idle / 1 charging / 2 flash, u8 angle (0..255 → 2π),
  *   u8  beamTicksLeft (charge or flash remaining), u16 beamReach (world units)
  *   u8  abilityCd     ticks until the It's ability is ready, clamped to 255 (HUD)
- *   u8  nestCount     then per nest spider: i16 x, i16 y, u8 state
- *   i8  hazardKill    slot a nest spider killed THIS tick, or -1 (one-tick event)
+ *   u8  nestCount     then per lair grabber: i16 x, i16 y, u8 state, i8 heldSlot
+ *   i8  hazardCaught  slot a grabber CAUGHT this tick, or -1 (one-tick event)
  *   i8  portalUsed    slot that warped THIS tick, or -1 (one-tick event)
  *   u8  playerCount   then per player:
  *     u8  slot
@@ -47,7 +47,7 @@ import type { World } from '../sim/world.ts'
  */
 
 export const SNAPSHOT_MAX_BYTES =
-  18 + MAX_DEPLOYED * 7 + 1 + MAX_DOORS + 1 + MAX_WEB_SHOTS * 4 + 5 + 1 + 1 + MAX_NESTS * 5 + 2 + 1 + MAX_PLAYERS * 8
+  18 + MAX_DEPLOYED * 7 + 1 + MAX_DOORS + 1 + MAX_WEB_SHOTS * 4 + 5 + 1 + 1 + MAX_NESTS * 6 + 2 + 1 + MAX_PLAYERS * 8
 
 export const writeSnapshot = (w: World, mapIndex: number, out: DataView): number => {
   out.setUint32(0, w.tick, true)
@@ -109,16 +109,18 @@ export const writeSnapshot = (w: World, mapIndex: number, out: DataView): number
   o += 2
   out.setUint8(o++, Math.min(255, Math.max(0, w.abilityReadyTick - w.tick)))
 
-  // Nest spiders: position + state, so the hazard reads identically on every screen.
+  // Lair grabbers: position, state and who they hold, so the grip (and the victim's
+  // dead input) reads identically on every screen — the victim's own client included.
   const nestCount = w.map.nests.length / 2
   out.setUint8(o++, nestCount)
   for (let n = 0; n < nestCount; n++) {
     out.setInt16(o, Math.round(w.nestX[n]!), true)
     out.setInt16(o + 2, Math.round(w.nestY[n]!), true)
     out.setUint8(o + 4, w.nestState[n]!)
-    o += 5
+    out.setInt8(o + 5, w.nestState[n] === 4 ? w.nestTarget[n]! : NO_SLOT)
+    o += 6
   }
-  out.setInt8(o++, w.events.hazardKill)
+  out.setInt8(o++, w.events.hazardCaught)
   out.setInt8(o++, w.events.portalUsed)
 
   const countAt = o++
@@ -179,13 +181,15 @@ export interface Snapshot {
   beamReach: number
   /** Ticks until the It's ability is ready (clamped 0..255) — drives the HUD sweep. */
   abilityCdTicks: number
-  /** Nest spiders. */
+  /** Lair grabbers (nest spiders / hive UFOs). */
   nestCount: number
   nestX: Float32Array
   nestY: Float32Array
   nestState: Uint8Array
-  /** One-tick events: slot killed by a nest / slot that warped, or NO_SLOT. */
-  hazardKill: number
+  /** Slot each grabber holds (NO_SLOT unless its state is Hold). */
+  nestHeld: Int8Array
+  /** One-tick events: slot a grabber caught / slot that warped, or NO_SLOT. */
+  hazardCaught: number
   portalUsed: number
   /** Dense per-slot arrays; inactive slots read active=0. */
   active: Uint8Array
@@ -232,7 +236,8 @@ export const createSnapshot = (): Snapshot => ({
   nestX: new Float32Array(MAX_NESTS),
   nestY: new Float32Array(MAX_NESTS),
   nestState: new Uint8Array(MAX_NESTS),
-  hazardKill: NO_SLOT,
+  nestHeld: new Int8Array(MAX_NESTS).fill(NO_SLOT),
+  hazardCaught: NO_SLOT,
   portalUsed: NO_SLOT,
   active: new Uint8Array(MAX_PLAYERS),
   x: new Float32Array(MAX_PLAYERS),
@@ -294,9 +299,10 @@ export const readSnapshot = (src: DataView, into: Snapshot): void => {
     into.nestX[n] = src.getInt16(o, true)
     into.nestY[n] = src.getInt16(o + 2, true)
     into.nestState[n] = src.getUint8(o + 4)
-    o += 5
+    into.nestHeld[n] = src.getInt8(o + 5)
+    o += 6
   }
-  into.hazardKill = src.getInt8(o++)
+  into.hazardCaught = src.getInt8(o++)
   into.portalUsed = src.getInt8(o++)
 
   into.active.fill(0)

@@ -5,11 +5,19 @@ import {
   MAX_NESTS,
   MAX_PORTALS,
   MAX_WEB_SHOTS,
+  Monster,
+  MONSTER_BY_MAP,
   NO_SLOT,
   type World,
 } from '@echo-tag/shared'
 import { Container, Sprite, type Texture } from 'pixi.js'
-import { NEST_SPIDER_BODY, NEST_SPIDER_EYE, NEST_WEB_COLOR, PORTAL_COLOR, PORTAL_CORE } from '../theme.ts'
+import { NEST_SPIDER_BODY, NEST_SPIDER_EYE, NEST_SPIDER_LEG, NEST_WEB_COLOR, PORTAL_COLOR, PORTAL_CORE } from '../theme.ts'
+
+/** UFO grabber palette (the hive's lairs are saucers, not spiders). */
+const UFO_HULL = 0x8fa4c4
+const UFO_DOME = 0xbfffe8
+const UFO_LIGHT = 0x2fd4b8
+const UFO_BEAM = 0x9fffe0
 
 /**
  * The moving parts of the themed worlds: web shots in flight, the alien's beam
@@ -195,7 +203,8 @@ export const renderMonsterFx = (fx: MonsterFxLayer, world: World, nowMs: number)
     corePulse.alpha = 0.5
   }
 
-  // ── Nest spiders ──
+  // ── Lair grabbers: nest spiders, or abduction UFOs on the alien's map ──
+  const ufo = MONSTER_BY_MAP[world.map.index] === Monster.Alien
   const nestCount = world.map.nests.length / 2
   for (let n = 0; n < MAX_NESTS; n++) {
     const sp = fx.nests[n]!
@@ -219,8 +228,57 @@ export const renderMonsterFx = (fx: MonsterFxLayer, world: World, nowMs: number)
     const state = world.nestState[n]!
     const lunging = state === 1
     const resting = state === 3
-    // The body breathes while lurking, flattens while feeding, bristles mid-lunge.
+    const holding = state === 4
+
+    if (ufo) {
+      // A saucer hovering above its anchor: hull disc + glass dome + two blink-lights,
+      // with a tractor beam of widening light bars while it hunts or holds.
+      const hover = -88 + Math.sin(t * 1.7 + n * 2.1) * 5
+      sp.body.tint = UFO_HULL
+      sp.body.x = x
+      sp.body.y = y + hover
+      sp.body.scale.set(60 / 8, 13 / 8)
+      sp.head.tint = UFO_DOME
+      sp.head.x = x
+      sp.head.y = y + hover - 11
+      sp.head.scale.set(26 / 8, 12 / 8)
+      sp.head.alpha = 0.9
+      sp.eyeL.tint = UFO_LIGHT
+      sp.eyeR.tint = UFO_LIGHT
+      sp.eyeL.x = x - 20
+      sp.eyeR.x = x + 20
+      sp.eyeL.y = sp.eyeR.y = y + hover + 5
+      sp.eyeL.scale.set(4 / 8, 4 / 8)
+      sp.eyeR.scale.set(4 / 8, 4 / 8)
+      sp.eyeL.alpha = Math.sin(t * 6 + n) > 0 ? 1 : 0.25
+      sp.eyeR.alpha = Math.sin(t * 6 + n + Math.PI) > 0 ? 1 : 0.25
+      // Legs 0-3: the tractor beam, widening toward the ground. Legs 4-7: parked.
+      const beamOn = lunging || holding
+      for (let l = 0; l < LEGS; l++) {
+        const leg = sp.legs[l]!
+        if (l >= 4 || !beamOn) {
+          leg.x = PARKED
+          leg.y = PARKED
+          continue
+        }
+        const f = (l + 1) / 4
+        leg.tint = UFO_BEAM
+        leg.x = x
+        leg.y = y + hover + 12 + f * (-hover - 12)
+        leg.scale.set(((18 + f * 30) / 8) * (holding ? 1.15 : 1), 5 / 8)
+        leg.rotation = 0
+        leg.alpha = (holding ? 0.55 : 0.35) + 0.15 * Math.sin(t * 9 + l)
+      }
+      continue
+    }
+
+    // The nest spider: body breathes while lurking, flattens while sulking, bristles
+    // mid-lunge, and clamps its legs around the victim while holding.
     const breathe = resting ? 0.85 : 1 + Math.sin(t * (lunging ? 14 : 2.2) + n) * (lunging ? 0.1 : 0.04)
+    sp.body.tint = NEST_SPIDER_BODY
+    sp.head.tint = NEST_SPIDER_BODY
+    sp.eyeL.tint = NEST_SPIDER_EYE
+    sp.eyeR.tint = NEST_SPIDER_EYE
     sp.body.x = x
     sp.body.y = y
     sp.body.scale.set((26 / 8) * breathe, (19 / 8) * breathe)
@@ -233,16 +291,19 @@ export const renderMonsterFx = (fx: MonsterFxLayer, world: World, nowMs: number)
     sp.eyeR.x = x + 4
     sp.eyeR.y = y - 13 * breathe
     sp.eyeR.scale.set(3.4 / 8, 3.4 / 8)
-    sp.eyeL.alpha = sp.eyeR.alpha = lunging ? 1 : 0.85
+    sp.eyeL.alpha = sp.eyeR.alpha = lunging || holding ? 1 : 0.85
     for (let l = 0; l < LEGS; l++) {
       const leg = sp.legs[l]!
       const side = l < 4 ? -1 : 1
       const idx = l % 4
       const skitter = lunging ? Math.sin(t * 22 + l * 1.9) * 4 : Math.sin(t * 2.4 + l) * 1.2
-      leg.x = x + side * (16 + idx * 4)
-      leg.y = y - 8 + idx * 6 + skitter
+      leg.tint = NEST_SPIDER_LEG
+      // Holding: the legs wrap inward around the victim instead of splaying.
+      leg.x = x + side * (holding ? 9 + idx * 2 : 16 + idx * 4)
+      leg.y = y - 8 + idx * 6 + (holding ? Math.sin(t * 10 + l) * 1.5 : skitter)
       leg.scale.set(12 / 8, 3 / 8)
-      leg.rotation = side * (0.5 - idx * 0.25)
+      leg.rotation = side * (holding ? 1.1 - idx * 0.2 : 0.5 - idx * 0.25)
+      leg.alpha = 0.95
     }
   }
 }
