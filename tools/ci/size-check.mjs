@@ -10,7 +10,10 @@
  * Budgets are grouped by *what the player waits for*, not by file:
  *   boot   — everything needed for an interactive Play button (html + entry + runtime)
  *   engine — PixiJS, which streams in behind the Play button
- *   total  — the whole playable game
+ *   code   — all script + markup: the whole playable game logic
+ *   media  — sound files, fetched lazily by the audio engine after Play
+ *
+ * Everything together is also reported against Poki's 8MB initial-download cap.
  *
  * Run after `npm run build`.
  */
@@ -20,12 +23,15 @@ import { join, relative } from 'node:path'
 const DIST = 'Echo-Tag-Frontend/dist'
 
 /** KB, brotli. See docs/PERFORMANCE_BUDGET.md. */
-const BUDGETS = { boot: 16, engine: 160, total: 260 }
+const BUDGETS = { boot: 16, engine: 160, code: 260, media: 1200 }
+/** Poki's hard cap on the initial download, KB. */
+const POKI_CAP = 8 * 1024
 
 /** The boot payload: parsed and interactive before anything else may load. */
 const isBoot = (name) =>
   name === 'index.html' || /(^|\/)(index|boot|rolldown-runtime)\.[^/]*\.(js|css)$/.test(name)
 const isEngine = (name) => /(^|\/)engine\.[^/]*\.js$/.test(name)
+const isMedia = (name) => /\.(mp3|ogg|wav|m4a|png|jpg|webp|avif)$/.test(name)
 
 const walk = async (dir) => {
   const out = []
@@ -67,11 +73,13 @@ rows.sort((a, b) => b.kb - a.kb)
 const sum = (pred) => rows.filter((r) => pred(r.name)).reduce((s, r) => s + r.kb, 0)
 const boot = sum(isBoot)
 const engine = sum(isEngine)
-const total = rows.reduce((s, r) => s + r.kb, 0)
+const media = sum(isMedia)
+const code = rows.reduce((s, r) => s + r.kb, 0) - media
+const everything = code + media
 
 console.log('\n  transfer size (brotli where available)\n')
 for (const r of rows) {
-  const tag = isBoot(r.name) ? 'boot  ' : isEngine(r.name) ? 'engine' : '      '
+  const tag = isBoot(r.name) ? 'boot  ' : isEngine(r.name) ? 'engine' : isMedia(r.name) ? 'media ' : '      '
   console.log(
     `  ${r.kb.toFixed(1).padStart(8)} KB  ${tag}  ${r.name}${r.compressed ? '' : '  (raw, under compression threshold)'}`,
   )
@@ -86,12 +94,16 @@ const line = (label, value, budget) => {
 console.log('')
 line('boot', boot, BUDGETS.boot)
 line('engine', engine, BUDGETS.engine)
-line('total', total, BUDGETS.total)
+line('code', code, BUDGETS.code)
+line('media', media, BUDGETS.media)
+console.log(`    everything ${everything.toFixed(1).padStart(7)} KB of Poki's ${POKI_CAP} KB initial-download cap  (${((everything / POKI_CAP) * 100).toFixed(0)}%)`)
 
 const failures = []
 if (boot > BUDGETS.boot) failures.push(`boot payload ${boot.toFixed(1)}KB > ${BUDGETS.boot}KB — the Play button must be interactive before anything heavy loads`)
 if (engine > BUDGETS.engine) failures.push(`engine ${engine.toFixed(1)}KB > ${BUDGETS.engine}KB`)
-if (total > BUDGETS.total) failures.push(`total ${total.toFixed(1)}KB > ${BUDGETS.total}KB`)
+if (code > BUDGETS.code) failures.push(`code ${code.toFixed(1)}KB > ${BUDGETS.code}KB`)
+if (media > BUDGETS.media) failures.push(`media ${media.toFixed(1)}KB > ${BUDGETS.media}KB — re-encode or trim the sounds`)
+if (everything > POKI_CAP) failures.push(`everything ${everything.toFixed(1)}KB > Poki's ${POKI_CAP}KB initial-download cap`)
 
 if (failures.length > 0) {
   console.error(`\n✗ bundle budget exceeded:\n  - ${failures.join('\n  - ')}\n`)

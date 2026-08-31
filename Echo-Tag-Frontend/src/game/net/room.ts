@@ -277,8 +277,22 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
         serverMyX = snap.x[s]!
         serverMyY = snap.y[s]!
       } else {
-        world.vx[s] = (snap.x[s]! - world.x[s]!) / dtSec
-        world.vy[s] = (snap.y[s]! - world.y[s]!) / dtSec
+        const jx = snap.x[s]! - world.x[s]!
+        const jy = snap.y[s]! - world.y[s]!
+        // Teleport-sized jumps — the first snapshot after joining (the mirror still reads
+        // 0,0), round-start respawns, wardrobe exits — must not read as movement: a
+        // velocity derived from one screeches the footstep voice (hundreds of times
+        // normal playback rate) and the render lerp would glide the body across the map.
+        // Snap instead. 60 units is ~4x the fastest legitimate per-snapshot delta.
+        if (jx * jx + jy * jy > 60 * 60) {
+          world.vx[s] = 0
+          world.vy[s] = 0
+          prevX[s] = snap.x[s]!
+          prevY[s] = snap.y[s]!
+        } else {
+          world.vx[s] = jx / dtSec
+          world.vy[s] = jy / dtSec
+        }
         world.x[s] = snap.x[s]!
         world.y[s] = snap.y[s]!
         if (s === mySlot) {

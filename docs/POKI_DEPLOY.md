@@ -3,14 +3,15 @@
 ## Build the upload
 
 ```bash
-npm run package        # → echo-tag-poki.zip (~180KB)
+npm run package        # → echo-tag-poki.zip (~1.3MB)
 ```
 
 The zip is `Echo-Tag-Frontend/dist` minus sourcemaps and precompressed variants: an
 `index.html` plus hashed chunks under `a/`, all referenced by **relative** paths
-(`base: './'`), so it works from Poki's CDN subpaths. There are no other assets — every
-texture, map and sound is generated at runtime, which is what keeps the build at ~180KB
-against Poki's 8MB initial-download cap.
+(`base: './'`), so it works from Poki's CDN subpaths. Every texture and map is generated
+at runtime; the only fetched assets are the four MP3 sounds (~1.06MB), loaded by the
+audio engine after Play. That keeps the build at ~1.3MB against Poki's 8MB
+initial-download cap, with the interactive menu still under 8KB.
 
 ## SDK integration (already wired)
 
@@ -30,7 +31,10 @@ QUICK MATCH / HOST / JOIN need the Colyseus server (`Echo-Tag-Server`) deployed 
 with **wss** (Poki pages are https; browsers refuse mixed-content ws). Poki permits games
 to use their own multiplayer backends. Steps:
 
-1. Deploy the server (any Node 24 host: `node src/index.ts`, port from `PORT`).
+1. Deploy the server (any Node 24 host: `node src/index.ts`, port from `PORT`). The
+   transport is uWebSockets (native binary, prebuilt by npm for linux/macOS/windows on
+   x64 and arm64) — ~25% less CPU and ~25% less RSS than the default ws transport at
+   100 concurrent rooms, measured with `tools/stress`.
 2. Put it behind TLS (a reverse proxy terminating wss is fine).
 3. Build with `VITE_WS_ORIGIN=wss://your-host` in `Echo-Tag-Frontend/.env`.
 4. Repackage.
@@ -40,14 +44,18 @@ multiplayer buttons report the failure and point the player at PLAY.
 
 ## Pre-submission checklist (tech doc §8)
 
-- [x] Initial load ≤4s / <8MB — ~180KB total, menu interactive at ~120ms
+- [x] Initial load ≤4s / <8MB — ~1.3MB total (of which ~1.06MB is lazily-fetched sound), menu interactive at ~120ms
 - [x] Playable within seconds, no forced intro — PLAY is one tap
 - [x] 30–60fps on mid-range mobile — verify on real hardware (the checks measure a desktop GPU)
 - [x] Responsive portrait + landscape, touch controls auto-available — asserted in `npm run check`
 - [x] Auto input detection, no device picker — keyboard and joystick coexist
 - [x] Joystick sizing/safe-zones per spec — 110/55px, 10px dead zone, 20px edge clearance
 - [x] Up to 12 players, bot-fill, lobby wait ≤2s (public rooms)
-- [x] No chat / UGC
+- [ ] **Chat / UGC needs Poki's prior approval** — the game now has room chat (relay-only,
+      rate-limited, control-chars stripped, never stored) and private room codes. Poki
+      requires approval and moderation tooling for any chat; either get that approval
+      before submitting, or ship the first submission with chat disabled behind a build
+      flag and re-enable once approved.
 - [x] SDK events wired as above
 - [x] Clean build — no sourcemaps, no dev tools, dev URL hooks are inert without their params
 - [ ] Real-device pass (mid-range Android + iOS Safari) — do this before submitting

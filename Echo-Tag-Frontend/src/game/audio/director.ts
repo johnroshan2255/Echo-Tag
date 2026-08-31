@@ -133,7 +133,15 @@ export const createAudioDirector = (): AudioDirector => {
         if (world.active[s] === 0) continue
         const pa = playerAudio[s]!
         const speed = Math.sqrt(world.vx[s]! * world.vx[s]! + world.vy[s]! * world.vy[s]!)
-        
+
+        // No legs move faster than ~270 u/s (PLAYER_SPEED x IT_SPEED_MULT); anything way
+        // above that is a teleport artifact and must never reach the playbackRate math,
+        // where it becomes a screech.
+        if (speed > 600) {
+          pa.wasStopped = true
+          continue
+        }
+
         if (speed < 20) {
           if (!pa.wasStopped) {
             // Player just stopped. Immediately kill the sound so the MP3 tail doesn't linger 
@@ -178,11 +186,12 @@ export const createAudioDirector = (): AudioDirector => {
         pa.src = engine.ctx.createBufferSource()
         pa.src.buffer = buf
         
-        // Game pacing is fast (4 steps/sec). Make the MP3 play significantly faster so it 
+        // Game pacing is fast (4 steps/sec). Make the MP3 play significantly faster so it
         // sounds like running rather than casual walking, scaled by their actual speed.
-        let rate = (speed / 240) * 2.0 
+        let rate = (speed / 240) * 2.0
         if (isGhost) rate *= 1.1 // Ghost sounds slightly faster
-        pa.src.playbackRate.value = rate
+        // Full sprint lands at ~2.2 (ghost ~2.5); anything past 3 is not footsteps.
+        pa.src.playbackRate.value = Math.min(3, rate)
         
         pa.src.connect(pa.pan!)
 

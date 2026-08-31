@@ -409,6 +409,11 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       (n) => net.setRoundMins(n),
       (n) => net.setMapIndex(n),
     )
+    // The map picked on the boot menu carries into the hosted room. Safe to send here:
+    // create() resolves only after the join that made this client the host.
+    if (mode.kind === 'host' && mode.mapIndex !== undefined && mode.mapIndex !== 0) {
+      net.setMapIndex(mode.mapIndex)
+    }
     const { createChatUi } = await import('./chat.ts')
     chatUi = createChatUi({
       send: (t) => net.sendChat(t),

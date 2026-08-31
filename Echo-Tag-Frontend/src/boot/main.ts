@@ -88,23 +88,48 @@ const menu = document.createElement('div')
 menu.id = 'menu'
 menu.innerHTML = `
   <style>
-    #bmap { display: flex; align-items: stretch; justify-content: center; margin: 0 0 12px; gap: 8px; width: 100%; max-width: 320px; }
-    #bmap button { pointer-events: auto; cursor: pointer; border: 3px solid #3a3150; background: #262048; color: #e9ddff;
-      width: 44px; font: 800 18px/1 ui-monospace, monospace; box-shadow: 4px 4px 0 rgba(0,0,0,.35); flex-shrink: 0; }
-    #bmap button:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 rgba(0,0,0,.35); }
-    #bmap-preview { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1;
-      border: 3px solid #3a3150; background: #1d1830; padding: 12px; box-shadow: 4px 4px 0 rgba(0,0,0,.35); min-width: 0; }
-    #bmap-canvas { width: 100%; max-width: 240px; aspect-ratio: 24/14; image-rendering: pixelated; margin-bottom: 8px; border: 2px solid #3a3150; border-radius: 4px; }
-    #bmap-name { color: #ffc07a; font: 800 13px/1 ui-monospace, monospace; letter-spacing: .12em; text-shadow: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    /* The map picker: one chunky pixel frame — arrow blocks flush against the preview
+       panel, hard corners everywhere. The canvas is a true miniature of the whole arena
+       (20:11), so it must stay big enough to read: as wide as the menu allows, capped by
+       height so landscape phones keep the Play button on screen. */
+    #bmap { display: flex; align-items: stretch; justify-content: center; margin: 0 0 12px;
+      gap: 0; width: min(92vw, 440px); box-shadow: 6px 6px 0 rgba(0,0,0,.4); }
+    #bmap button { pointer-events: auto; cursor: pointer; border: 3px solid #3a3150;
+      background: #262048; color: #e9ddff; width: 44px; flex-shrink: 0;
+      font: 800 18px/1 ui-monospace, monospace; }
+    #bmap button:active { background: #3a3150; }
+    #bmap-prev { border-right: 0; }
+    #bmap-next { border-left: 0; }
+    #bmap-preview { display: flex; flex-direction: column; flex: 1; min-width: 0;
+      border: 3px solid #3a3150; background: #1d1830; padding: 8px; }
+    #bmap-canvas { display: block; width: min(100%, calc(30vh * 20 / 11));
+      aspect-ratio: 20/11; margin: 0 auto 8px; border: 2px solid #3a3150;
+      background: #262038; }
+    #bmap-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    #bmap-name { color: #ffc07a; font: 800 13px/1 ui-monospace, monospace;
+      letter-spacing: .12em; text-shadow: none; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; }
+    #bmap-pips { display: flex; gap: 5px; flex-shrink: 0; }
+    #bmap-pips i { width: 9px; height: 9px; background: #3a3150; }
+    #bmap-pips i.on { background: #ffc07a; }
+    @media (max-height: 520px) {
+      /* The frame hugs the height-capped canvas (arrows + padding + borders ≈ 114px),
+         so no dead panel space flanks the map on a landscape phone. */
+      #bmap { margin: 0 0 8px; width: min(92vw, calc(24vh * 20 / 11 + 114px)); }
+      #bmap-canvas { width: min(100%, calc(24vh * 20 / 11)); }
+    }
   </style>
   <h1 id="title">ECHO TAG</h1>
   <div id="bmap">
-    <button id="bmap-prev" type="button">&#9664;</button>
+    <button id="bmap-prev" type="button" aria-label="previous map">&#9664;</button>
     <div id="bmap-preview">
       <canvas id="bmap-canvas"></canvas>
-      <span id="bmap-name">FOUNDRY</span>
+      <div id="bmap-foot">
+        <span id="bmap-name">FOUNDRY</span>
+        <span id="bmap-pips"></span>
+      </div>
     </div>
-    <button id="bmap-next" type="button">&#9654;</button>
+    <button id="bmap-next" type="button" aria-label="next map">&#9654;</button>
   </div>
   <button id="play" type="button" aria-label="Play with bots">PLAY</button>
   <p id="status">Don't be It when the clock runs out.</p>
@@ -125,8 +150,10 @@ const codeIn = menu.querySelector('#codein') as HTMLInputElement
 const bmapPrev = menu.querySelector('#bmap-prev') as HTMLButtonElement
 const bmapNext = menu.querySelector('#bmap-next') as HTMLButtonElement
 const bmapName = menu.querySelector('#bmap-name') as HTMLElement
+const bmapPips = menu.querySelector('#bmap-pips') as HTMLElement
 const bmapCanvas = menu.querySelector('#bmap-canvas') as HTMLCanvasElement
 const bmapCtx = bmapCanvas.getContext('2d')!
+bmapPips.innerHTML = '<i></i>'.repeat(MAP_COUNT)
 codeIn.addEventListener('input', () => {
   codeIn.value = codeIn.value.toUpperCase().replace(/[^A-Z]/g, '')
 })
@@ -136,10 +163,11 @@ const updateBmap = () => {
   const map = MAPS[bmapIndex]
   if (!map) return
   bmapName.textContent = map.name.toUpperCase()
-  
-  bmapCanvas.width = 240
-  bmapCanvas.height = 140
-  drawMinimap(bmapCtx, map, 240, 140)
+  bmapPips.querySelectorAll('i').forEach((pip, i) => pip.classList.toggle('on', i === bmapIndex))
+  // 16px per tile internally (the CSS box only ever downscales), 20:11 like the arena.
+  bmapCanvas.width = 640
+  bmapCanvas.height = 352
+  drawMinimap(bmapCtx, map, 640, 352)
 }
 bmapPrev.addEventListener('click', () => {
   bmapIndex = (bmapIndex - 1 + MAP_COUNT) % MAP_COUNT
@@ -172,6 +200,7 @@ const start = async (mode: GameMode): Promise<void> => {
     await mod.startGame(stage, mode)
 
     menu.remove()
+    removeEventListener('keydown', onMenuKey) // the menu is gone; drop its closure too
     // Only now is there something behind the preview worth showing.
     previewLive = false
     preview.classList.add('gone')
@@ -224,14 +253,16 @@ joinForm.addEventListener('submit', (e) => {
   if (codeIn.value.length === 5) void start({ kind: 'code', code: codeIn.value })
   else status.textContent = 'Room codes are five letters.'
 })
-// Enter/Space anywhere starts a bots round — the zero-friction path.
-addEventListener('keydown', (e) => {
+// Enter/Space anywhere starts a bots round — the zero-friction path. Removed on a
+// successful start, so the game doesn't keep the dead menu's closure alive.
+const onMenuKey = (e: KeyboardEvent): void => {
   if (starting || document.activeElement === codeIn) return
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
     void start({ kind: 'bots', mapIndex: bmapIndex })
   }
-})
+}
+addEventListener('keydown', onMenuKey)
 
 // A marker the headless smoke check waits on, and a cheap manual sanity signal.
 document.documentElement.dataset.boot = 'ready'

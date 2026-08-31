@@ -38,8 +38,10 @@
       #ui { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
       /* The menu: the game's square language — hard corners, chunky drop-blocks, dusk +
          apricot. The player is a square-person; the UI is built from the same bricks. */
-      #menu { position: absolute; inset: 0; display: grid; place-content: center;
-        gap: 14px; justify-items: center; }
+      /* `safe center` keeps the top reachable if the menu ever outgrows a short screen;
+         browsers without the keyword fall back to the plain center on the line before. */
+      #menu { position: absolute; inset: 0; display: grid; gap: 14px; justify-items: center;
+        overflow-y: auto; place-content: center; place-content: safe center; }
       #menu.busy { pointer-events: none; opacity: .7; }
       #title { color: #f6f1ff; font: 900 30px/1 system-ui, sans-serif; letter-spacing: .3em;
         margin: 0 0 4px; text-shadow: 4px 4px 0 rgba(0,0,0,.45); }
@@ -61,6 +63,15 @@
         letter-spacing: .2em; text-transform: uppercase; outline: none; border-right: 0; }
       #joinform input:focus { border-color: var(--accent); }
       #joinform button { border-left: 0; }
+      /* Landscape phones: shrink the chrome so the map preview, Play and the multiplayer
+         row all stay on a ~390px-tall screen. */
+      @media (max-height: 520px) {
+        #menu { gap: 8px; }
+        #title { font-size: 22px; margin: 0; }
+        #play { padding: 12px 44px; font-size: 18px; }
+        #status { font-size: 12px; }
+        #mp { margin-top: 4px; }
+      }
     </style>
   </head>
   <body>

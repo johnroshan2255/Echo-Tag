@@ -59,6 +59,10 @@ interface JoinOptions {
 
 const isBotFill = (w: World, slot: number): boolean => w.isBot[slot] === 1
 
+/** Input messages accepted per client per 50ms tick window. Honest clients send 1;
+ * 8 tolerates reconnection/tab-resume bursts while capping a flood at 8x normal. */
+const INPUT_MSGS_PER_TICK_MAX = 8
+
 /** An empty room survives this long — a refresh (leave + rejoin by ?room=CODE) must not
  * destroy the room the player is trying to come back to. */
 const EMPTY_ROOM_GRACE_MS = 30_000
@@ -98,6 +102,11 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     this.onMessage(MSG.Input, (client, data: ArrayBuffer | Uint8Array) => {
       const slot = this.slotOf.get(client.sessionId)
       if (slot === undefined) return
+      // Rate cap: an honest client sends exactly one of these per 50ms tick; allow a
+      // generous burst (tab-resume clumps) and silently drop the rest, so a flooding
+      // client costs one map lookup and a counter check instead of full processing.
+      if (this.inputBudget[slot]! >= INPUT_MSGS_PER_TICK_MAX) return
+      this.inputBudget[slot]!++
       const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
       if (bytes.length < 3) return
       const seq = bytes[0]! | (bytes[1]! << 8)
@@ -160,14 +169,14 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     })
 
     this.onMessage(MSG.Map, (client, n: unknown) => {
-      console.log("MSG.Map received", n, client.sessionId, this.state.hostId, this.state.isPrivate, this.world.phase)
-      if (client.sessionId !== this.state.hostId) return console.log("rejected: not host")
-      if (!this.state.isPrivate || this.world.phase !== RoundPhase.Lobby) return console.log("rejected: not private or not lobby")
-      if (typeof n !== 'number' || !Number.isInteger(n)) return console.log("rejected: not integer")
+      // The host of a private room picks the arena, in the lobby only — same rules as
+      // bots and round length.
+      if (client.sessionId !== this.state.hostId) return
+      if (!this.state.isPrivate || this.world.phase !== RoundPhase.Lobby) return
+      if (typeof n !== 'number' || !Number.isInteger(n)) return
       const index = Math.max(0, Math.min(MAP_COUNT - 1, n))
       setMap(this.world, index)
       this.state.mapIndex = index
-      console.log("Accepted and updated mapIndex to", index)
     })
 
     this.onMessage(MSG.Go, (client) => {
@@ -301,6 +310,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
 
   private tick(): void {
     const w = this.world
+    this.inputBudget.fill(0) // a fresh per-client input allowance every tick window
 
     if (Date.now() >= this.emptyAt) {
       void this.disconnect() // nobody came back inside the grace window
@@ -353,6 +363,9 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
 
   // Humans' most recent input bytes, kept apart so the bot driver can't clobber them.
   private lastHumanInput = new Uint8Array(MAX_PLAYERS)
+
+  // Input messages consumed by each slot this tick window (see INPUT_MSGS_PER_TICK_MAX).
+  private inputBudget = new Uint8Array(MAX_PLAYERS)
 
   // Chat rate limit: earliest wall-clock time each client may speak again.
   private chatNextAt = new Map<string, number>()

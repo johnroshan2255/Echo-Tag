@@ -45,7 +45,10 @@ export const createLobbyUi = (
         <button id="map-minus" type="button" aria-label="previous map">&#9664;</button>
         <div id="map-preview">
           <canvas id="map-canvas"></canvas>
-          <span id="map-label"></span>
+          <div id="map-foot">
+            <span id="map-label"></span>
+            <span id="map-pips"></span>
+          </div>
         </div>
         <button id="map-plus" type="button" aria-label="next map">&#9654;</button>
       </div>
@@ -88,9 +91,20 @@ export const createLobbyUi = (
       min-width: 96px; padding: 10px 16px; color: #ffc07a;
       border: 3px solid #3a3150; border-left: 0; border-right: 0; font: 800 13px/1 ui-monospace, monospace;
       letter-spacing: .12em; }
-    #map-preview { flex-direction: column; padding: 6px 12px; background: #1d1830; }
-    #map-canvas { width: 144px; aspect-ratio: 24/14; image-rendering: pixelated; margin-bottom: 6px; border: 2px solid #3a3150; border-radius: 4px; }
-    #map-label { line-height: 1; text-shadow: none; }
+    /* The map row grows into a proper preview: a true miniature of the whole arena
+       (20:11), so it takes the width the card can give it, capped by height on
+       landscape phones. Hard corners — same brick language as everything else. */
+    #lobby-map { width: min(80vw, 400px); margin-left: auto; margin-right: auto; }
+    #map-preview { flex: 1; min-width: 0; flex-direction: column; padding: 8px; background: #1d1830; }
+    #map-canvas { display: block; width: min(100%, calc(28vh * 20 / 11)); aspect-ratio: 20/11;
+      margin: 0 auto 6px; border: 2px solid #3a3150; background: #262038; }
+    #map-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      width: 100%; }
+    #map-label { line-height: 1; text-shadow: none; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; }
+    #map-pips { display: flex; gap: 5px; flex-shrink: 0; }
+    #map-pips i { width: 8px; height: 8px; background: #3a3150; }
+    #map-pips i.on { background: #ffc07a; }
     #lobby-hint { color: #b3a8c9; font-size: 12px; margin: 12px 0 0; }
     #lobby.results #lobby-roster { flex-direction: column; align-items: stretch; }
     .lobby-row { display: flex; align-items: center; gap: 10px; color: #f6f1ff;
@@ -109,6 +123,9 @@ export const createLobbyUi = (
       #lobby-count { margin: 0 0 6px; }
       #lobby-roster { margin: 0 0 10px; }
       #lobby-bots, #lobby-mins, #lobby-map { margin: 0 0 8px; }
+      #lobby-map { margin-left: auto; margin-right: auto;
+        width: min(80vw, calc(22vh * 20 / 11 + 114px)); }
+      #map-canvas { width: min(100%, calc(22vh * 20 / 11)); }
       #lobby-start { padding: 10px 34px; min-height: 44px; }
       #lobby-hint { margin: 8px 0 0; }
     }
@@ -131,6 +148,8 @@ export const createLobbyUi = (
   const minsPlus = root.querySelector('#mins-plus') as HTMLButtonElement
   const mapRow = root.querySelector('#lobby-map') as HTMLElement
   const mapLabel = root.querySelector('#map-label') as HTMLElement
+  const mapPips = root.querySelector('#map-pips') as HTMLElement
+  mapPips.innerHTML = '<i></i>'.repeat(MAP_COUNT)
   const mapMinus = root.querySelector('#map-minus') as HTMLButtonElement
   const mapPlus = root.querySelector('#map-plus') as HTMLButtonElement
   const mapCanvas = root.querySelector('#map-canvas') as HTMLCanvasElement
@@ -164,9 +183,11 @@ export const createLobbyUi = (
   const paintMinimap = (mapIndex: number) => {
     const map = MAPS[mapIndex]
     if (!map) return
-    mapCanvas.width = 144
-    mapCanvas.height = 84
-    drawMinimap(mapCtx, map, 144, 84)
+    // 16px per tile internally (the CSS box only ever downscales), 20:11 like the arena.
+    mapCanvas.width = 640
+    mapCanvas.height = 352
+    drawMinimap(mapCtx, map, 640, 352)
+    mapPips.querySelectorAll('i').forEach((pip, i) => pip.classList.toggle('on', i === mapIndex))
   }
 
   return {
@@ -188,19 +209,12 @@ export const createLobbyUi = (
         botsLabel.textContent = `BOTS: ${view.bots}`
         minsRow.hidden = !(view.isPrivate && view.isHost)
         minsLabel.textContent = `ROUND: ${view.roundMins} MIN`
-        mapRow.hidden = false // Everyone sees the map, but only host can change it
-        mapMinus.style.visibility = (view.isPrivate && view.isHost) || (!view.isPrivate && view.phase !== RoundPhase.Lobby) ? 'visible' : 'hidden'
+        mapRow.hidden = false // Everyone sees the map preview…
+        // …but only a private room's host can change it — the server rejects MSG.Map from
+        // guests and from public rooms, so nobody gets arrows that silently do nothing.
+        const canPickMap = view.isPrivate && view.isHost
+        mapMinus.style.visibility = canPickMap ? 'visible' : 'hidden'
         mapPlus.style.visibility = mapMinus.style.visibility
-        
-        // Ensure offline mode can change map if we don't have isHost true? Offline mode has isPrivate=true, isHost=true usually? We'll see.
-        if (view.isPrivate && !view.isHost) {
-            mapMinus.style.visibility = 'hidden'
-            mapPlus.style.visibility = 'hidden'
-        } else {
-            mapMinus.style.visibility = 'visible'
-            mapPlus.style.visibility = 'visible'
-        }
-
         mapLabel.textContent = MAPS[view.mapIndex]?.name?.toUpperCase() ?? 'UNKNOWN'
         paintMinimap(view.mapIndex)
         // Bots count toward a startable round: a solo host plus one bot is a real game,
@@ -227,6 +241,7 @@ export const createLobbyUi = (
         startBtn.hidden = true
         botsRow.hidden = true
         minsRow.hidden = true
+        mapRow.hidden = true
         hint.textContent = 'least time as the ghost wins — next round starting'
         // Winner = least It-time (#1). Loser = most — but only when strictly worst, so a
         // full-room tie never brands an arbitrary player.
