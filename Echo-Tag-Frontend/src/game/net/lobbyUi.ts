@@ -1,4 +1,4 @@
-import { MAP_COUNT, MAP_TILES_X, MAP_TILES_Y, MAPS, PLAYER_COLORS, ROUND_MINS_MAX, ROUND_MINS_MIN, RoundPhase } from '@echo-tag/shared'
+import { MAP_COUNT, MAP_TILES_X, MAP_TILES_Y, MAPS, MONSTER_NAMES, PLAYER_COLORS, ROUND_MINS_MAX, ROUND_MINS_MIN, RoundPhase } from '@echo-tag/shared'
 import type { LobbyView } from './room.ts'
 import { drawMinimap } from '../../boot/minimap.ts'
 
@@ -215,7 +215,7 @@ export const createLobbyUi = (
         const canPickMap = view.isPrivate && view.isHost
         mapMinus.style.visibility = canPickMap ? 'visible' : 'hidden'
         mapPlus.style.visibility = mapMinus.style.visibility
-        mapLabel.textContent = MAPS[view.mapIndex]?.name?.toUpperCase() ?? 'UNKNOWN'
+        mapLabel.textContent = `${MAPS[view.mapIndex]?.name?.toUpperCase() ?? 'UNKNOWN'} · ${MONSTER_NAMES[view.mapIndex] ?? ''}`
         paintMinimap(view.mapIndex)
         // Bots count toward a startable round: a solo host plus one bot is a real game,
         // and the bots +/- control they are shown must be able to take effect.
@@ -242,7 +242,7 @@ export const createLobbyUi = (
         botsRow.hidden = true
         minsRow.hidden = true
         mapRow.hidden = true
-        hint.textContent = 'least time as the ghost wins — next round starting'
+        hint.textContent = 'least time as the monster wins — next round starting'
         // Winner = least It-time (#1). Loser = most — but only when strictly worst, so a
         // full-room tie never brands an arbitrary player.
         const worst = view.scores[view.scores.length - 1]

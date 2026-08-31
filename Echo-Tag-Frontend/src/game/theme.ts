@@ -110,6 +110,145 @@ export const FIREFLY_COUNT = 130
 export const FIREFLY_SIZE = 3.2 // world units
 export const FIREFLY_DRIFT = 26 // world units of wander amplitude
 
+// ── Per-map worlds ───────────────────────────────────────────────────────────
+// Each map is a WORLD now, not a palette swap: the manor keeps the dusk hedge look above,
+// the forest grows grass and trees, the cave is stone and webs, the hive is metal and
+// glow. One theme object carries every environmental colour + dressing knob; arena.ts and
+// boot/minimap.ts read the same table so the preview stays a true screenshot of the map.
+// Player colours, fog and the It marking are deliberately NOT per-theme: legibility rules.
+
+/** How wall tiles are dressed. */
+export const WallStyle = { Hedge: 0, Trees: 1, Stone: 2, Metal: 3 } as const
+export type WallStyle = (typeof WallStyle)[keyof typeof WallStyle]
+
+export interface MapTheme {
+  floor: number
+  floorSpeckle: number
+  speckles: number
+  floorCrack: number
+  floorCrackLit: number
+  floorCracks: number
+  rubble: number
+  rubbleDark: number
+  wallFill: number
+  wallRim: number
+  wallTuft: number
+  wallCrack: number
+  wallCracks: number
+  wallStyle: WallStyle
+  /** Cobweb count for the corner pass (the cave is draped in them). */
+  webs: number
+  /** Erosion & crumbled corners suit organic walls; metal keeps clean seams instead. */
+  eroded: boolean
+  /** Forest floors sprout pixel grass blades and the odd flower. */
+  grass: boolean
+  /** Hive floors carry tile-grid panel seams. */
+  panelSeams: boolean
+  /** Cave walls carry pale strata lines. */
+  strata: boolean
+  /** Trunk wood for tree walls (unused by other styles). */
+  trunk: number
+  windowGlow: number
+  lampHead: number
+}
+
+const MANOR: MapTheme = {
+  floor: FLOOR,
+  floorSpeckle: FLOOR_SPECKLE,
+  speckles: SPECKLES_PER_MAP,
+  floorCrack: FLOOR_CRACK,
+  floorCrackLit: FLOOR_CRACK_LIT,
+  floorCracks: FLOOR_CRACKS_PER_MAP,
+  rubble: RUBBLE,
+  rubbleDark: RUBBLE_DARK,
+  wallFill: WALL_FILL,
+  wallRim: WALL_RIM,
+  wallTuft: WALL_TUFT,
+  wallCrack: WALL_CRACK,
+  wallCracks: WALL_CRACKS_PER_MAP,
+  wallStyle: WallStyle.Hedge,
+  webs: WEBS_PER_MAP,
+  eroded: true,
+  grass: false,
+  panelSeams: false,
+  strata: false,
+  trunk: 0x4a3527,
+  windowGlow: WINDOW_GLOW,
+  lampHead: LAMP_HEAD,
+}
+
+const FOREST: MapTheme = {
+  ...MANOR,
+  floor: 0x223021, // dark meadow
+  floorSpeckle: 0x35502f,
+  floorCrack: 0x3a2f22, // dirt paths, not fissures
+  floorCrackLit: 0x54432f,
+  floorCracks: 18,
+  rubble: 0x3f5c33, // leaf litter
+  rubbleDark: 0x2b401f,
+  wallFill: 0x1b2b18, // tree canopy
+  wallRim: 0x517d3f,
+  wallTuft: 0x2f4d26,
+  wallCrack: 0x0d1a0b,
+  wallStyle: WallStyle.Trees,
+  webs: 6,
+  grass: true,
+}
+
+const CAVE: MapTheme = {
+  ...MANOR,
+  floor: 0x2a2733, // worn stone
+  floorSpeckle: 0x3a3647,
+  floorCrack: 0x191622,
+  floorCrackLit: 0x474156,
+  floorCracks: 34,
+  rubble: 0x45405a,
+  rubbleDark: 0x2e2a3e,
+  wallFill: 0x191527, // deep rock
+  wallRim: 0x5b5470,
+  wallTuft: 0x2b2640,
+  wallCrack: 0x0c0a14,
+  wallCracks: 44,
+  wallStyle: WallStyle.Stone,
+  webs: 46, // the spider's den is draped in silk
+  strata: true,
+  windowGlow: 0xbfe0ff, // pale cold light through the rock
+}
+
+const HIVE: MapTheme = {
+  ...MANOR,
+  floor: 0x1c2430, // brushed deck plate
+  floorSpeckle: 0x27384a,
+  speckles: 320, // metal carries flecks, not leaf litter
+  floorCrack: 0x121822, // scored plating
+  floorCrackLit: 0x33475c,
+  floorCracks: 10,
+  rubble: 0x31455c,
+  rubbleDark: 0x1f2c3c,
+  wallFill: 0x121a26,
+  wallRim: 0x2fd4b8, // the glowing conduit trim
+  wallTuft: 0x1c2f3d,
+  wallCrack: 0x0a0f18,
+  wallCracks: 8,
+  wallStyle: WallStyle.Metal,
+  webs: 0,
+  eroded: false, // machines do not crumble; they seam
+  panelSeams: true,
+  windowGlow: 0x9fffe0, // teal viewports
+  lampHead: 0xc8ffe8,
+}
+
+/** Indexed by map: manor, forest, cave, hive — matching MONSTER_BY_MAP. */
+export const THEMES: readonly MapTheme[] = [MANOR, FOREST, CAVE, HIVE]
+
+/** Portals read the same arcane violet on every world — a pad must be instantly known. */
+export const PORTAL_COLOR = 0x9d82ea
+export const PORTAL_CORE = 0xe6dcff
+/** Nest spiders and their web carpets. */
+export const NEST_WEB_COLOR = 0xcfc8e8
+export const NEST_SPIDER_BODY = 0x241d33
+export const NEST_SPIDER_EYE = 0xff5040
+
 /**
  * Tiny deterministic PRNG for cosmetic scatter (speckles, fireflies), seeded per map so a
  * map always dresses itself the same way. Client-only — nothing gameplay-relevant may use

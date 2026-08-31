@@ -5,8 +5,10 @@ import {
   MAP_H,
   MAX_DEPLOYED,
   MAX_DOORS,
+  MAX_NESTS,
   MAX_TOOL_SPAWNS,
   MAX_WARDROBES,
+  MAX_WEB_SHOTS,
   MAP_TILES_X,
   MAP_W,
   MAX_PLAYERS,
@@ -130,6 +132,43 @@ export interface World {
   turningSlot: Slot
   turningUntilTick: number
 
+  // ── Monster ability (spider web / alien beam; see sim/monster.ts) ──
+  /** Pending ability press per slot, consumed next tick. Only the It's counts. */
+  abilityQueued: Uint8Array
+  /** Tick the It may use its ability again. Reset whenever the role changes hands. */
+  abilityReadyTick: number
+  /** Web shots, fixed pool: position, velocity, expiry tick (0 = free), firing slot. */
+  webX: Float32Array
+  webY: Float32Array
+  webVX: Float32Array
+  webVY: Float32Array
+  webUntilTick: Int32Array
+  webOwner: Uint8Array
+  /** Beam: 0 idle, 1 charging, 2 flash (just fired, still drawn). */
+  beamPhase: number
+  beamUntilTick: number
+  /** Aim, locked at the press. */
+  beamAngle: number
+  /** How far the fired beam reached (walls stop it) — the renderer draws exactly this. */
+  beamReach: number
+
+  // ── Nest spiders (environmental hazard; see sim/nest.ts) ──
+  /** Spider position per nest (home is the map's nest tile). */
+  nestX: Float32Array
+  nestY: Float32Array
+  /** 0 lurk, 1 lunge, 2 return, 3 rest. */
+  nestState: Uint8Array
+  /** Slot being hunted while lunging, else NO_SLOT. */
+  nestTarget: Int8Array
+  /** Rest-until tick while resting. */
+  nestUntilTick: Int32Array
+  /** Consecutive ticks of contact with the target — the kill needs NEST_KILL_MS held. */
+  nestContact: Uint8Array
+
+  // ── Portals ──
+  /** Tick until which each player's portals stay cold (anti ping-pong). */
+  portalCooldownUntil: Int32Array
+
   // ── Unconsciousness ──
   /** Tick until which each player is out cold. 0 = awake. */
   unconsciousUntilTick: Int32Array
@@ -175,12 +214,32 @@ export const setMap = (w: World, mapIndex: number): void => {
   w.doorOpen.fill(0)
   w.hiddenIn.fill(NO_SLOT)
   w.wardrobeCooldownUntil.fill(0)
+  resetHazards(w)
+}
+
+/** Parks every nest spider at its home tile and clears ability/portal transients. */
+export const resetHazards = (w: World): void => {
+  const nests = w.map.nests
+  for (let n = 0; n < MAX_NESTS; n++) {
+    w.nestX[n] = n * 2 + 1 < nests.length ? tileCenterX(nests[n * 2]!) : -9999
+    w.nestY[n] = n * 2 + 1 < nests.length ? tileCenterY(nests[n * 2 + 1]!) : -9999
+    w.nestState[n] = 0
+    w.nestTarget[n] = NO_SLOT
+    w.nestUntilTick[n] = 0
+    w.nestContact[n] = 0
+  }
+  w.webUntilTick.fill(0)
+  w.beamPhase = 0
+  w.beamUntilTick = 0
+  w.abilityQueued.fill(0)
+  w.abilityReadyTick = 0
+  w.portalCooldownUntil.fill(0)
 }
 
 export const createWorld = (seed: number, mapIndex = 0): World => {
   const arenaW = MAP_W
   const arenaH = MAP_H
-  return {
+  const w: World = {
     tick: 0,
     phase: RoundPhase.Lobby,
     phaseMs: 0,
@@ -234,6 +293,27 @@ export const createWorld = (seed: number, mapIndex = 0): World => {
     tagBackUntilTick: 0,
     turningSlot: NO_SLOT,
     turningUntilTick: 0,
+
+    abilityQueued: new Uint8Array(MAX_PLAYERS),
+    abilityReadyTick: 0,
+    webX: new Float32Array(MAX_WEB_SHOTS),
+    webY: new Float32Array(MAX_WEB_SHOTS),
+    webVX: new Float32Array(MAX_WEB_SHOTS),
+    webVY: new Float32Array(MAX_WEB_SHOTS),
+    webUntilTick: new Int32Array(MAX_WEB_SHOTS),
+    webOwner: new Uint8Array(MAX_WEB_SHOTS),
+    beamPhase: 0,
+    beamUntilTick: 0,
+    beamAngle: 0,
+    beamReach: 0,
+    nestX: new Float32Array(MAX_NESTS).fill(-9999),
+    nestY: new Float32Array(MAX_NESTS).fill(-9999),
+    nestState: new Uint8Array(MAX_NESTS),
+    nestTarget: new Int8Array(MAX_NESTS).fill(NO_SLOT),
+    nestUntilTick: new Int32Array(MAX_NESTS),
+    nestContact: new Uint8Array(MAX_NESTS),
+    portalCooldownUntil: new Int32Array(MAX_PLAYERS),
+
     unconsciousUntilTick: new Int32Array(MAX_PLAYERS),
     trailOverlap: new Uint16Array(MAX_PLAYERS),
     playerCount: 0,
@@ -250,8 +330,10 @@ export const createWorld = (seed: number, mapIndex = 0): World => {
     bodyAge: new Uint8Array(MAX_BODIES),
     hash: createSpatialHash(arenaW, arenaH),
 
-    events: { tagCount: 0, tagFrom: NO_SLOT, tagTo: NO_SLOT, roundEnded: false },
+    events: { tagCount: 0, tagFrom: NO_SLOT, tagTo: NO_SLOT, roundEnded: false, hazardKill: NO_SLOT, portalUsed: NO_SLOT },
   }
+  resetHazards(w)
+  return w
 }
 
 /** Draws the next float in [0, 1) and advances the world's stream. */
@@ -319,6 +401,8 @@ export const addPlayer = (w: World, isBot: boolean): Slot => {
     w.slowedUntilTick[s] = 0
     w.hiddenIn[s] = NO_SLOT
     w.unconsciousUntilTick[s] = 0
+    w.abilityQueued[s] = 0
+    w.portalCooldownUntil[s] = 0
     w.playerCount++
 
     // A mid-round joiner starts wherever there is the most room, and their history is
@@ -363,7 +447,16 @@ export const removePlayer = (w: World, slot: Slot): void => {
   w.hiddenIn[slot] = NO_SLOT
   w.unconsciousUntilTick[slot] = 0
   w.useQueued[slot] = 0
+  w.abilityQueued[slot] = 0
   if (w.tagBackSlot === slot) w.tagBackUntilTick = 0
+  // A nest spider hunting the leaver goes home rather than chasing a stale slot.
+  for (let n = 0; n < MAX_NESTS; n++) {
+    if (w.nestTarget[n] === slot) {
+      w.nestTarget[n] = NO_SLOT
+      if (w.nestState[n] === 1) w.nestState[n] = 2 // lunge → return
+      w.nestContact[n] = 0
+    }
+  }
 
   w.active[slot] = 0
   w.playerCount--

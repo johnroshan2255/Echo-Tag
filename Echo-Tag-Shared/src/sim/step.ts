@@ -6,6 +6,9 @@ import {
 } from '../constants.ts'
 import { NO_SLOT, RoundPhase, type Slot, type StepEvents } from '../types.ts'
 import { updateDoors } from './door.ts'
+import { updateMonster } from './monster.ts'
+import { updateNests } from './nest.ts'
+import { updatePortals } from './portal.ts'
 import { updateTrailStuns } from './stun.ts'
 import { updateTurning } from './tag.ts'
 import { spawnKeys, updateKeys, updateWardrobes } from './wardrobe.ts'
@@ -14,7 +17,7 @@ import { rebuildEchoBodies, sampleHistory } from './echo.ts'
 import { IDLE_INPUT } from './input.ts'
 import { integratePlayer } from './player.ts'
 import { resolveTags, setIt } from './tag.ts'
-import { leastItTimeSlot, random, spawnAll, type World } from './world.ts'
+import { leastItTimeSlot, random, resetHazards, spawnAll, type World } from './world.ts'
 
 /**
  * THE tick. The only place game rules advance.
@@ -40,6 +43,8 @@ export const stepWorld = (w: World, inputs: Uint8Array): StepEvents => {
   ev.tagFrom = NO_SLOT
   ev.tagTo = NO_SLOT
   ev.roundEnded = false
+  ev.hazardKill = NO_SLOT
+  ev.portalUsed = NO_SLOT
 
   w.tick++
   w.phaseMs += TICK_MS
@@ -75,6 +80,9 @@ export const stepWorld = (w: World, inputs: Uint8Array): StepEvents => {
   // Tools: pickups, queued uses, and puddle/trap effects — all before integration, so a
   // fresh slow or KO shapes this very tick's movement.
   updateTools(w)
+  // The monster's own weapons (spider webs, alien beam) resolve with the tools, before
+  // integration, so a fresh root or beam-KO shapes this very tick's movement too.
+  updateMonster(w)
   // Then wardrobes: entries and exits resolve before integration, so a player who slips
   // inside this tick does not also move this tick.
   updateWardrobes(w, inputs)
@@ -85,6 +93,11 @@ export const stepWorld = (w: World, inputs: Uint8Array): StepEvents => {
     if (w.tick < w.unconsciousUntilTick[s]!) continue // out cold: input dead, body still
     integratePlayer(w, s, inputs[s] ?? IDLE_INPUT)
   }
+
+  // Teleports and nest kills happen AFTER movement and BEFORE history sampling, so the
+  // ring records the destination — a trail never bridges a warp or a respawn.
+  updatePortals(w)
+  updateNests(w)
 
   sampleHistory(w)
   rebuildEchoBodies(w)
@@ -129,6 +142,7 @@ export const enterPhase = (w: World, phase: RoundPhase): void => {
     w.turningSlot = -1
     w.unconsciousUntilTick.fill(0)
     w.trailOverlap.fill(0)
+    resetHazards(w) // nest spiders home, webs cleared, beam idle, portals warm
     spawnAll(w)
     spawnKeys(w)
     spawnTools(w)

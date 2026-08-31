@@ -1,7 +1,9 @@
 import {
+  MAX_NESTS,
   MAX_PLAYERS,
   MAX_TOOL_SPAWNS,
   MAX_WARDROBES,
+  MAX_WEB_SHOTS,
   MSG,
   NO_SLOT,
   TICK_MS,
@@ -80,8 +82,14 @@ export interface NetGame {
   setRoundMins(n: number): void
   /** Host only, private lobbies: select map. */
   setMapIndex(n: number): void
+  /** Fires the monster ability (validated server-side: only the It, only off cooldown). */
+  useAbility(): void
   onLobby(cb: (view: LobbyView) => void): void
   onTag(cb: (from: number, to: number) => void): void
+  /** A nest spider killed `slot` this tick (score penalty + far respawn already applied). */
+  onHazard(cb: (slot: number) => void): void
+  /** `slot` warped through a portal this tick. */
+  onPortal(cb: (slot: number) => void): void
   onRoundSetup(cb: () => void): void
   onHostLeft(cb: () => void): void
   start(): void
@@ -141,6 +149,8 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
 
   let lobbyCb: ((v: LobbyView) => void) | null = null
   let tagCb: ((from: number, to: number) => void) | null = null
+  let hazardCb: ((slot: number) => void) | null = null
+  let portalCb: ((slot: number) => void) | null = null
   let roundCb: (() => void) | null = null
   let chatCb: ((slot: number, text: string) => void) | null = null
   let emoteCb: ((slot: number, n: number) => void) | null = null
@@ -333,9 +343,34 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
       world.depUntilTick[i] = snap.tick + snap.depTicksLeft[i]!
     }
 
+    // Monster weapons, nest spiders and the ability clock: straight mirrors. Web shots
+    // arrive compacted, so mark exactly `webCount` pool slots live for the renderer.
+    for (let i = 0; i < MAX_WEB_SHOTS; i++) {
+      if (i < snap.webCount) {
+        world.webX[i] = snap.webX[i]!
+        world.webY[i] = snap.webY[i]!
+        world.webUntilTick[i] = snap.tick + 1
+      } else {
+        world.webUntilTick[i] = 0
+      }
+    }
+    world.beamPhase = snap.beamPhase
+    world.beamAngle = snap.beamAngle
+    world.beamUntilTick = snap.tick + snap.beamTicksLeft
+    world.beamReach = snap.beamReach
+    world.abilityReadyTick = snap.tick + snap.abilityCdTicks
+    for (let n = 0; n < MAX_NESTS && n < snap.nestCount; n++) {
+      world.nestX[n] = snap.nestX[n]!
+      world.nestY[n] = snap.nestY[n]!
+      world.nestState[n] = snap.nestState[n]!
+    }
+
     // Echo trails: identical reconstruction to the server, per ADR 0004.
     sampleHistory(world)
     rebuildEchoBodies(world)
+
+    if (snap.hazardKill !== NO_SLOT) hazardCb?.(snap.hazardKill)
+    if (snap.portalUsed !== NO_SLOT) portalCb?.(snap.portalUsed)
 
     // The tag lands at the START of the metamorphosis (itSlot passes through NO_SLOT for
     // the whole lull, so watching itSlot alone would never fire). Never on the FIRST
@@ -440,6 +475,14 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
       }
     },
 
+    useAbility(): void {
+      try {
+        room.send(MSG.Use, 2)
+      } catch {
+        /* transient disconnects surface via onLeave, not here */
+      }
+    },
+
     sendChat(text: string): void {
       try {
         room.send(MSG.Chat, text)
@@ -494,6 +537,12 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     },
     onTag(cb): void {
       tagCb = cb
+    },
+    onHazard(cb): void {
+      hazardCb = cb
+    },
+    onPortal(cb): void {
+      portalCb = cb
     },
     onRoundSetup(cb): void {
       roundCb = cb

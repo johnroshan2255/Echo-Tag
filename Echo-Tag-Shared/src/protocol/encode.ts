@@ -1,4 +1,4 @@
-import { MAX_DEPLOYED, MAX_DOORS, MAX_PLAYERS, MAX_TOOL_SPAWNS, MAX_WARDROBES, TOOL_SLOTS } from '../constants.ts'
+import { MAX_DEPLOYED, MAX_DOORS, MAX_NESTS, MAX_PLAYERS, MAX_TOOL_SPAWNS, MAX_WARDROBES, MAX_WEB_SHOTS, TOOL_SLOTS } from '../constants.ts'
 import { NO_SLOT } from '../types.ts'
 import type { World } from '../sim/world.ts'
 
@@ -27,6 +27,13 @@ import type { World } from '../sim/world.ts'
  *   u8  depCount      then per deployed tool: u8 (poolIdx<<4 | type), i16 x, i16 y,
  *                      u16 ticksLeft — clients rebuild the pool from this each snapshot
  *   u8  doorCount     then per door: u8 openness (0..255)
+ *   u8  webCount      then per live web shot: i16 x, i16 y — the spider's projectiles
+ *   u8  beamPhase     0 idle / 1 charging / 2 flash, u8 angle (0..255 → 2π),
+ *   u8  beamTicksLeft (charge or flash remaining), u16 beamReach (world units)
+ *   u8  abilityCd     ticks until the It's ability is ready, clamped to 255 (HUD)
+ *   u8  nestCount     then per nest spider: i16 x, i16 y, u8 state
+ *   i8  hazardKill    slot a nest spider killed THIS tick, or -1 (one-tick event)
+ *   i8  portalUsed    slot that warped THIS tick, or -1 (one-tick event)
  *   u8  playerCount   then per player:
  *     u8  slot
  *     i16 x, i16 y    (quantised world units — invisible at our zoom)
@@ -39,7 +46,8 @@ import type { World } from '../sim/world.ts'
  * Both sides share this file, so the format cannot drift between them.
  */
 
-export const SNAPSHOT_MAX_BYTES = 18 + MAX_DEPLOYED * 7 + 1 + MAX_DOORS + 1 + MAX_PLAYERS * 8
+export const SNAPSHOT_MAX_BYTES =
+  18 + MAX_DEPLOYED * 7 + 1 + MAX_DOORS + 1 + MAX_WEB_SHOTS * 4 + 5 + 1 + 1 + MAX_NESTS * 5 + 2 + 1 + MAX_PLAYERS * 8
 
 export const writeSnapshot = (w: World, mapIndex: number, out: DataView): number => {
   out.setUint32(0, w.tick, true)
@@ -82,6 +90,36 @@ export const writeSnapshot = (w: World, mapIndex: number, out: DataView): number
   for (let d = 0; d < doorCount; d++) {
     out.setUint8(o++, Math.round(w.doorOpen[d]! * 255))
   }
+
+  // Monster weapons: web shots in flight, then the beam's phase/aim/clock/reach.
+  const webCountAt = o++
+  let webs = 0
+  for (let i = 0; i < MAX_WEB_SHOTS; i++) {
+    if (w.webUntilTick[i]! <= w.tick) continue
+    out.setInt16(o, Math.round(w.webX[i]!), true)
+    out.setInt16(o + 2, Math.round(w.webY[i]!), true)
+    o += 4
+    webs++
+  }
+  out.setUint8(webCountAt, webs)
+  out.setUint8(o++, w.beamPhase)
+  out.setUint8(o++, Math.round(((w.beamAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) * (255 / (Math.PI * 2))) & 0xff)
+  out.setUint8(o++, Math.min(255, Math.max(0, w.beamUntilTick - w.tick)))
+  out.setUint16(o, Math.round(w.beamReach), true)
+  o += 2
+  out.setUint8(o++, Math.min(255, Math.max(0, w.abilityReadyTick - w.tick)))
+
+  // Nest spiders: position + state, so the hazard reads identically on every screen.
+  const nestCount = w.map.nests.length / 2
+  out.setUint8(o++, nestCount)
+  for (let n = 0; n < nestCount; n++) {
+    out.setInt16(o, Math.round(w.nestX[n]!), true)
+    out.setInt16(o + 2, Math.round(w.nestY[n]!), true)
+    out.setUint8(o + 4, w.nestState[n]!)
+    o += 5
+  }
+  out.setInt8(o++, w.events.hazardKill)
+  out.setInt8(o++, w.events.portalUsed)
 
   const countAt = o++
   let n = 0
@@ -130,6 +168,25 @@ export interface Snapshot {
   depTicksLeft: Uint16Array
   doorOpen: Float32Array
   doorCount: number
+  /** Web shots in flight (spider monster). */
+  webCount: number
+  webX: Float32Array
+  webY: Float32Array
+  /** Beam (alien monster): 0 idle / 1 charging / 2 flash, aim in radians, ticks left. */
+  beamPhase: number
+  beamAngle: number
+  beamTicksLeft: number
+  beamReach: number
+  /** Ticks until the It's ability is ready (clamped 0..255) — drives the HUD sweep. */
+  abilityCdTicks: number
+  /** Nest spiders. */
+  nestCount: number
+  nestX: Float32Array
+  nestY: Float32Array
+  nestState: Uint8Array
+  /** One-tick events: slot killed by a nest / slot that warped, or NO_SLOT. */
+  hazardKill: number
+  portalUsed: number
   /** Dense per-slot arrays; inactive slots read active=0. */
   active: Uint8Array
   x: Float32Array
@@ -163,6 +220,20 @@ export const createSnapshot = (): Snapshot => ({
   depTicksLeft: new Uint16Array(MAX_DEPLOYED),
   doorOpen: new Float32Array(MAX_DOORS),
   doorCount: 0,
+  webCount: 0,
+  webX: new Float32Array(MAX_WEB_SHOTS),
+  webY: new Float32Array(MAX_WEB_SHOTS),
+  beamPhase: 0,
+  beamAngle: 0,
+  beamTicksLeft: 0,
+  beamReach: 0,
+  abilityCdTicks: 0,
+  nestCount: 0,
+  nestX: new Float32Array(MAX_NESTS),
+  nestY: new Float32Array(MAX_NESTS),
+  nestState: new Uint8Array(MAX_NESTS),
+  hazardKill: NO_SLOT,
+  portalUsed: NO_SLOT,
   active: new Uint8Array(MAX_PLAYERS),
   x: new Float32Array(MAX_PLAYERS),
   y: new Float32Array(MAX_PLAYERS),
@@ -204,6 +275,29 @@ export const readSnapshot = (src: DataView, into: Snapshot): void => {
   for (let d = 0; d < into.doorCount; d++) {
     into.doorOpen[d] = src.getUint8(o++) / 255
   }
+
+  into.webCount = src.getUint8(o++)
+  for (let i = 0; i < into.webCount; i++) {
+    into.webX[i] = src.getInt16(o, true)
+    into.webY[i] = src.getInt16(o + 2, true)
+    o += 4
+  }
+  into.beamPhase = src.getUint8(o++)
+  into.beamAngle = (src.getUint8(o++) / 255) * Math.PI * 2
+  into.beamTicksLeft = src.getUint8(o++)
+  into.beamReach = src.getUint16(o, true)
+  o += 2
+  into.abilityCdTicks = src.getUint8(o++)
+
+  into.nestCount = src.getUint8(o++)
+  for (let n = 0; n < into.nestCount; n++) {
+    into.nestX[n] = src.getInt16(o, true)
+    into.nestY[n] = src.getInt16(o + 2, true)
+    into.nestState[n] = src.getUint8(o + 4)
+    o += 5
+  }
+  into.hazardKill = src.getInt8(o++)
+  into.portalUsed = src.getInt8(o++)
 
   into.active.fill(0)
   const n = src.getUint8(o++)

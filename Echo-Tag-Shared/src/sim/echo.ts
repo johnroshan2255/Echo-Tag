@@ -3,6 +3,9 @@ import {
   ECHO_SAMPLES,
   ECHO_STRIDE,
   MAX_PLAYERS,
+  Monster,
+  MONSTER_BY_MAP,
+  monsterHasTrail,
 } from '../constants.ts'
 import { rebuild } from '../math/spatial-hash.ts'
 import type { World } from './world.ts'
@@ -51,11 +54,14 @@ export const rebuildEchoBodies = (w: World): void => {
   const filled = w.histFilled
   // One sample per tick, so sample age and tick age share units.
   const ticksAsIt = w.tick - w.itSinceTick
+  // Trails belong to the trail-monsters (ghost, wraith). On spider/alien maps the It
+  // hunts with its ability instead and the arena holds no echo hazards at all.
+  const hasTrail = monsterHasTrail(MONSTER_BY_MAP[w.map.index] ?? Monster.Ghost)
 
   for (let s = 0; s < MAX_PLAYERS; s++) {
     const bodyBase = s * ECHO_BODIES_PER_PLAYER
     const histBase = s * ECHO_SAMPLES
-    const live = w.active[s] === 1 && s === w.itSlot
+    const live = hasTrail && w.active[s] === 1 && s === w.itSlot
 
     for (let k = 0; k < ECHO_BODIES_PER_PLAYER; k++) {
       const id = bodyBase + k

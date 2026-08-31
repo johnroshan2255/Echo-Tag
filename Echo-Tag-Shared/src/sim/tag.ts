@@ -34,6 +34,12 @@ export const setIt = (w: World, to: Slot): void => {
     // new ghost's pre-crowning past never becomes a hazard — humans get the lull plus
     // this ramp as their head start.
     w.itSinceTick = w.tick
+    // The ability comes with the crown: fresh monster, fresh cooldown clock — and any
+    // beam the PREVIOUS monster left mid-charge dies with the handover, or it would
+    // fire from the new monster's position at the old angle.
+    w.abilityReadyTick = w.tick
+    w.abilityQueued[to] = 0
+    w.beamPhase = 0
   }
   if (from !== NO_SLOT && from !== to) {
     w.tagCooldownUntilTick[from] = w.tick + COOLDOWN_TICKS

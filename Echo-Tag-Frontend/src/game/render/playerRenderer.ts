@@ -1,6 +1,8 @@
 import {
   IT_RING_COLOR,
   MAX_PLAYERS,
+  Monster,
+  MONSTER_BY_MAP,
   NO_SLOT,
   PLAYER_COLORS,
   PLAYER_RADIUS,
@@ -79,23 +81,21 @@ const darken = (color: number, f: number): number => {
   return ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff)
 }
 
-/** Mixes a toward b by t — the ghost's body sinks toward dusk but keeps a trace of who it was. */
-const mix = (a: number, b: number, t: number): number => {
-  const r = ((a >> 16) & 0xff) + (((b >> 16) & 0xff) - ((a >> 16) & 0xff)) * t
-  const g = ((a >> 8) & 0xff) + (((b >> 8) & 0xff) - ((a >> 8) & 0xff)) * t
-  const bl = (a & 0xff) + ((b & 0xff) - (a & 0xff)) * t
-  return ((r & 0xff) << 16) | ((g & 0xff) << 8) | (bl & 0xff)
-}
-
 const PARKED = -9999
 const TRANSFORM_TICKS = Math.ceil(TRANSFORM_DELAY_MS / TICK_MS)
-/** The wraith's body colour: near-dusk, one step lighter than the arena floor. */
-const WRAITH_DUSK = 0x241b38
-/** The wraith's eyes: embers. The only warm light on the coldest thing in the room. */
-const WRAITH_EYE = 0xff5040
-/** Terror radius: closer than this to the ghost, a human's eyes go wide. */
+/** Terror radius: closer than this to the monster, a human's eyes go wide. */
 const FEAR_RADIUS_SQ = (PLAYER_RADIUS * 8) ** 2
 const LEG_ROWS = GRID_H - 1 - LEG_TOP
+
+// ── Monster costumes ──────────────────────────────────────────────────────────
+// The It player wears the map's monster. All of it is per-frame transforms of the SAME
+// body template — no extra particles, no extra draw calls: the ghost is the classic
+// white-sheeted spirit (big dark eyes, a wavy tail where the legs were), the wraith is
+// its woodland twin, the spider is a squat wide thing on eight skittering legs, the
+// alien is a dome-headed grey-green with huge black eyes.
+const FORM_BODY: readonly number[] = [0xf2eefc, 0xd6f2dc, 0x2c2438, 0xa8d890]
+const FORM_EDGE: readonly number[] = [0xbdb3dc, 0x93cfa4, 0xc9b8ff, 0x567a3f]
+const FORM_EYE: readonly number[] = [0x241f38, 0x35604a, 0xff5040, 0x101018]
 
 export const renderPlayers = (
   layer: BodyLayer,
@@ -175,13 +175,13 @@ export const renderPlayers = (
     const bob = moving ? 0 : idleBob(nowMs, phase)
     const scatterAge = (nowMs - anim.taggedAtMs[p]!) / 1000
     const isIt = p === itSlot
-    // The ghost is a WRAITH, not a person with an outline: it hovers, its legs taper into
-    // a wisp tail, its body sinks toward dusk and its eyes burn. The white edge cells and
-    // the double halo stay — marking must survive a crowd — but the silhouette itself now
-    // says what it is.
-    const wraith = isIt
-    const hover = wraith ? 3 + Math.sin(nowMs * 0.003 + phase) * 1.8 : 0
-    // Fear: eyes go wide near the ghost. Cheap, readable, and it doubles as peripheral
+    // The It wears the map's monster: ghost, wraith, spider or alien (see FORM_* above).
+    const form = isIt ? (MONSTER_BY_MAP[world.map.index] ?? Monster.Ghost) : -1
+    const ghostly = form === Monster.Ghost || form === Monster.Wraith
+    const spider = form === Monster.Spider
+    const alien = form === Monster.Alien
+    const hover = ghostly ? 3 + Math.sin(nowMs * 0.003 + phase) * 1.8 : 0
+    // Fear: eyes go wide near the monster. Cheap, readable, and it doubles as peripheral
     // information — your own avatar knows before you do.
     const fear =
       !isIt &&
@@ -189,16 +189,16 @@ export const renderPlayers = (
       world.active[itSlot] === 1 &&
       (world.x[itSlot]! - wx) ** 2 + (world.y[itSlot]! - wy) ** 2 < FEAR_RADIUS_SQ
     // Lean into travel: the whole body shears toward the heading, feet anchored.
-    const lean = moving && !wraith ? Math.cos(facing) * Math.min(speed / PLAYER_SPEED, 1) * 1.4 : 0
-    // Out cold on the floor: the body reads as a collapsed pile, eyes shut — the ghost
+    const lean = moving && !ghostly && !spider ? Math.cos(facing) * Math.min(speed / PLAYER_SPEED, 1) * 1.4 : 0
+    // Out cold on the floor: the body reads as a collapsed pile, eyes shut — the monster
     // must be able to SPOT a faint through the fog, and the victim must see why their
     // input is dead. Mirrored in netplay via the snapshot's unconscious flag.
     const ko = world.tick < world.unconsciousUntilTick[p]!
-    // Goo-slowed: the silhouette's edge drips green so everyone can see who got got.
+    // Goo-slowed (or webbed): the silhouette's edge drips so everyone can see who got got.
     const slowed = world.tick < world.slowedUntilTick[p]!
     const color = PLAYER_COLORS[world.colorSlot[p]! % PLAYER_COLORS.length]!
-    // The wraith keeps a trace of its player colour, sunk deep toward dusk.
-    const bodyColor = wraith ? mix(color, WRAITH_DUSK, 0.72) : color
+    // The monster is a full costume; player identity lives in the halo, roster and trail.
+    const bodyColor = isIt ? FORM_BODY[form]! : color
 
     // A newly-tagged It flashes toward white while immune, so the handover is unmissable.
     // A TURNING player flickers toward the ghost's white too — slowly at the touch,
@@ -208,22 +208,22 @@ export const renderPlayers = (
     const flashHz = turning ? 0.008 + turnProgress * turnProgress * 0.05 : 0.03
     const flash = flashing ? (Math.sin(nowMs * flashHz) > 0 ? IT_RING_COLOR : bodyColor) : bodyColor
 
-    // Wide fearful eyes never blink; neither do the wraith's embers.
-    const blinkScale = wraith || fear ? 1 : blink(nowMs, phase)
+    // Wide fearful eyes never blink; neither do a monster's.
+    const blinkScale = isIt || fear ? 1 : blink(nowMs, phase)
 
-    // Ground shadow: a flattened dark square at the feet. The wraith's is smaller and
-    // fainter — a floating thing barely touches the floor; a collapsed body presses wide.
+    // Ground shadow: a flattened dark square at the feet. A floating ghost barely touches
+    // the floor; a squat spider presses wide; a collapsed body spreads.
     const shadow = layer.shadows[p]!
-    const shadowW = ko ? 15 : wraith ? 9 : 12
+    const shadowW = ko ? 15 : ghostly ? 9 : spider ? 16 : 12
     shadow.x = wx
     shadow.y = wy + CELL_WORLD * 0.4
     shadow.scaleX = WORLD_SCALE * shadowW
     shadow.scaleY = WORLD_SCALE * 2.4
-    shadow.alpha = wraith ? 0.16 : 0.3
+    shadow.alpha = ghostly ? 0.16 : 0.3
 
-    // Footstep dust: running feet kick up a puff every ~30 world units. The wraith
-    // floats and leaves none — its trail is the echo wall.
-    if (moving && !wraith && !ko && dist - anim.lastDustAt[p]! > 30) {
+    // Footstep dust: running feet kick up a puff every ~30 world units. Ghosts float
+    // and leave none — their trail is the echo wall.
+    if (moving && !ghostly && !ko && dist - anim.lastDustAt[p]! > 30) {
       anim.lastDustAt[p] = dist
       const h = anim.dustHead[0]!
       anim.dustHead[0] = (h + 1) % DUST_MAX
@@ -254,20 +254,58 @@ export const renderPlayers = (
       let cellScaleX = scaleX
       let cellScaleY = scaleY
 
-      // Limb animation. Legs lift on alternate phases; arms counter-swing. The wraith
-      // does neither: it hovers, its legs melting into a wisp tail, arms adrift.
-      if (wraith && !ko) {
+      // Limb animation and the monster costumes. Everything below is offsets and scales
+      // on template cells — the emoji-ghost's tail, the spider's eight legs and the
+      // alien's dome are the same squares, moved.
+      if (ghostly && !ko) {
+        // The white-sheeted ghost: hover, arms tucked into stubby sleeves, and the legs
+        // gathered into ONE wavy tail that trails below the hem and swishes.
         oy -= hover
         if (part === Part.LegL || part === Part.LegR) {
-          const taper = (gy - LEG_TOP) / LEG_ROWS // 0 at the hips → 1 at the feet
-          ox *= 1 - taper * 0.55
+          const taper = (gy - LEG_TOP) / LEG_ROWS // 0 at the hips → 1 at the tail tip
+          ox *= 1 - taper * 0.85 // both legs gather onto the centreline
+          ox += Math.sin(nowMs * 0.006 + taper * 4.2 + phase) * taper * 5 // the swish
           cellScaleX *= 1 - taper * 0.4
-          cellScaleY *= 1 - taper * 0.3
-          oy -= taper * 0.6 * CELL_WORLD
-        } else if (part === Part.ArmL) {
-          oy += Math.sin(nowMs * 0.0024 + phase) * 0.5 * CELL_WORLD
-        } else if (part === Part.ArmR) {
-          oy += Math.sin(nowMs * 0.0024 + phase + 2.6) * 0.5 * CELL_WORLD
+          oy += taper * 0.9 * CELL_WORLD // the tail hangs below the hem
+        } else if (part === Part.ArmL || part === Part.ArmR) {
+          ox *= 0.8
+          oy -= 0.4 * CELL_WORLD
+          cellScaleX *= 0.7
+          oy += Math.sin(nowMs * 0.0024 + phase + (part === Part.ArmR ? 2.6 : 0)) * 0.4 * CELL_WORLD
+        }
+      } else if (spider && !ko) {
+        // The cave spider: everything squashes low and wide, and all four limb columns
+        // splay into eight skittering legs. Cell size grows with the spread so the wider
+        // body stays a solid mass instead of striping.
+        oy = oy * 0.5 + PLAYER_RADIUS * 0.2
+        ox *= 1.25
+        cellScaleX *= 1.35
+        if (part === Part.ArmL || part === Part.ArmR || part === Part.LegL || part === Part.LegR) {
+          const side = part === Part.ArmL || part === Part.LegL ? -1 : 1
+          const legI = gy & 3 // four legs per side out of the limb rows
+          ox = side * (15 + legI * 4.5)
+          oy = (legI - 1.5) * 5.5 + PLAYER_RADIUS * 0.25
+          if (moving) oy += Math.sin(dist * 0.4 + legI * 1.7 + (side > 0 ? 0 : 2.2)) * 2.6
+          cellScaleY *= 0.8
+        }
+      } else if (alien && !ko) {
+        // The hive alien: walk cycle first, then the reshape — dome head, slim body.
+        if (part === Part.LegL) oy += legLift(dist, 1) * CELL_WORLD
+        else if (part === Part.LegR) oy += legLift(dist, -1) * CELL_WORLD
+        else if (part === Part.ArmL) oy += armSwing(dist, 1) * CELL_WORLD
+        else if (part === Part.ArmR) oy += armSwing(dist, -1) * CELL_WORLD
+        if (part === Part.Head || part === Part.Eye) {
+          // The dome grows: spacing AND cell size scale together, so it stays solid.
+          const hcy = cellOffsetY(3.2)
+          ox *= 1.45
+          oy = hcy + (oy - hcy) * 1.35 - CELL_WORLD * 0.8
+          cellScaleX *= 1.5
+          cellScaleY *= 1.4
+        } else if (part === Part.Torso) {
+          ox *= 0.7
+        } else {
+          ox *= 0.78
+          cellScaleX *= 0.75
         }
       } else {
         if (part === Part.LegL) oy += legLift(dist, 1) * CELL_WORLD
@@ -277,13 +315,21 @@ export const renderPlayers = (
       }
 
       if (part === Part.Eye) {
-        ox += eyeShift(facing, 0) * CELL_WORLD
+        ox += eyeShift(facing, 0) * CELL_WORLD * (spider ? 1.6 : 1)
         oy += eyeShift(facing, 1) * CELL_WORLD * 0.5
         cellScaleY *= ko ? 0.12 : blinkScale // eyes shut while out cold
-        // Ember eyes on the wraith; wide fearful eyes near it.
-        if (wraith) {
-          cellScaleX *= 1.55
-          cellScaleY *= 1.55
+        if (ghostly) {
+          // The emoji ghost's big dark oval eyes.
+          cellScaleX *= 1.8
+          cellScaleY *= 2.1
+        } else if (spider) {
+          cellScaleX *= 2.2
+          cellScaleY *= 2.2
+          oy += 4 // eyes sit on the front of the squat body, not floating above it
+        } else if (alien) {
+          // Huge almond eyes on the dome.
+          cellScaleX *= 2.1
+          cellScaleY *= 1.5
         } else if (fear && !ko) {
           cellScaleX *= 1.35
           cellScaleY *= 1.35
@@ -306,20 +352,25 @@ export const renderPlayers = (
       particle.y = wy + oy
       particle.scaleX = cellScaleX
       particle.scaleY = cellScaleY
-      // The It player gets white edge cells: a bright outline around the silhouette itself,
-      // so the marking survives even when the halo behind them is lost in a crowd.
-      particle.tint =
+      // Monsters get their own eye and edge colours; runners keep the classic marking.
+      let cellTint =
         part === Part.Eye
-          ? wraith
-            ? WRAITH_EYE // embers — the only warm light on the coldest thing in the room
+          ? isIt
+            ? FORM_EYE[form]!
             : 0x101018
           : BODY.edge[i] === 1
             ? isIt
-              ? IT_RING_COLOR
+              ? FORM_EDGE[form]!
               : slowed
-                ? 0x7ccb66 // goo drips
+                ? 0x7ccb66 // goo (or web) drips
                 : darken(flash, 0.62)
             : flash
+      // The ghost's tail shades hard toward lavender-grey: the tail hangs in the centre
+      // of the ghost's own lantern glow, and white-on-white would erase it.
+      if (ghostly && (part === Part.LegL || part === Part.LegR)) {
+        cellTint = darken(cellTint, 0.8 - ((gy - LEG_TOP) / LEG_ROWS) * 0.28)
+      }
+      particle.tint = cellTint
     }
 
     // Dizzy stars over a knocked-out body — the state reads at a glance through the fog.

@@ -1,6 +1,6 @@
 import { drawPreview } from './preview.ts'
 import { pokiInit, pokiLoadingFinished } from '../platform/poki.ts'
-import { MAP_COUNT, MAPS } from '@echo-tag/shared'
+import { MAP_COUNT, MAPS, MONSTER_NAMES } from '@echo-tag/shared'
 import { drawMinimap } from './minimap.ts'
 
 /**
@@ -162,7 +162,7 @@ let bmapIndex = 0
 const updateBmap = () => {
   const map = MAPS[bmapIndex]
   if (!map) return
-  bmapName.textContent = map.name.toUpperCase()
+  bmapName.textContent = `${map.name.toUpperCase()} · ${MONSTER_NAMES[bmapIndex] ?? ''}`
   bmapPips.querySelectorAll('i').forEach((pip, i) => pip.classList.toggle('on', i === bmapIndex))
   // 16px per tile internally (the CSS box only ever downscales), 20:11 like the arena.
   bmapCanvas.width = 640

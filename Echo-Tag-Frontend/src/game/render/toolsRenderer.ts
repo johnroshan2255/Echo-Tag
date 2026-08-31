@@ -5,11 +5,15 @@ import {
   TICK_MS,
   TOOL_GOO,
   TOOL_TRAP,
+  TOOL_WEB,
   TRAP_ARM_MS,
   TRAP_LIFE_MS,
+  WEB_PATCH_LIFE_MS,
+  WEB_PATCH_RADIUS,
   type World,
 } from '@echo-tag/shared'
 import { Container, Graphics } from 'pixi.js'
+import { NEST_WEB_COLOR } from '../theme.ts'
 import { JAR_ICON, TRAP_ICON, paintIcon } from './pixelIcons.ts'
 
 /**
@@ -30,15 +34,35 @@ const GOO_DARK = 0x4c8f3e
 const GOO_LIFE_TICKS = Math.ceil(GOO_LIFE_MS / TICK_MS)
 const TRAP_LIFE_TICKS = Math.ceil(TRAP_LIFE_MS / TICK_MS)
 const TRAP_ARM_TICKS = Math.ceil(TRAP_ARM_MS / TICK_MS)
+const WEB_LIFE_TICKS = Math.ceil(WEB_PATCH_LIFE_MS / TICK_MS)
+
+/** A landed web: concentric silk rings + radial threads, on the same fat-pixel grid. */
+const drawWebPatch = (g: Graphics): void => {
+  for (const frac of [0.45, 0.75, 1]) {
+    const r = WEB_PATCH_RADIUS * frac
+    const segs = 10
+    for (let k = 0; k < segs; k++) {
+      const a = (k / segs) * Math.PI * 2 + frac * 2.1
+      g.rect(Math.cos(a) * r - 3, Math.sin(a) * r - 3, 6, 6).fill({ color: NEST_WEB_COLOR, alpha: 0.5 })
+    }
+  }
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2 + 0.3
+    g.moveTo(0, 0).lineTo(Math.cos(a) * WEB_PATCH_RADIUS, Math.sin(a) * WEB_PATCH_RADIUS)
+  }
+  g.stroke({ color: NEST_WEB_COLOR, alpha: 0.35, width: 2.5 })
+  g.rect(-6, -6, 12, 12).fill({ color: 0xffffff, alpha: 0.5 })
+}
 
 export interface ToolsLayer {
   container: Container
   /** Floor pickups: [i][0] = goo jar glyph, [i][1] = trap glyph (one visible per spawn). */
   floorGoo: Graphics[]
   floorTrap: Graphics[]
-  /** Deployed pool: puddle + jaws per slot, toggled by type. */
+  /** Deployed pool: puddle + jaws + web patch per slot, toggled by type. */
   puddles: Graphics[]
   jaws: Graphics[]
+  webPatches: Graphics[]
 }
 
 /**
@@ -88,6 +112,7 @@ export const createToolsLayer = (): ToolsLayer => {
 
   const puddles: Graphics[] = []
   const jaws: Graphics[] = []
+  const webPatches: Graphics[] = []
   for (let i = 0; i < MAX_DEPLOYED; i++) {
     const p = new Graphics()
     drawPuddle(p)
@@ -100,9 +125,15 @@ export const createToolsLayer = (): ToolsLayer => {
     j.visible = false
     container.addChild(j)
     jaws.push(j)
+
+    const wp = new Graphics()
+    drawWebPatch(wp)
+    wp.visible = false
+    container.addChild(wp)
+    webPatches.push(wp)
   }
 
-  return { container, floorGoo, floorTrap, puddles, jaws }
+  return { container, floorGoo, floorTrap, puddles, jaws, webPatches }
 }
 
 export const renderTools = (layer: ToolsLayer, world: World, nowMs: number): void => {
@@ -126,8 +157,16 @@ export const renderTools = (layer: ToolsLayer, world: World, nowMs: number): voi
     const type = world.depType[i]!
     const puddle = layer.puddles[i]!
     const jaw = layer.jaws[i]!
+    const webPatch = layer.webPatches[i]!
     puddle.visible = type === TOOL_GOO
     jaw.visible = type === TOOL_TRAP
+    webPatch.visible = type === TOOL_WEB
+    if (type === TOOL_WEB) {
+      webPatch.x = world.depX[i]!
+      webPatch.y = world.depY[i]!
+      const left = world.depUntilTick[i]! - world.tick
+      webPatch.alpha = 0.8 * Math.min(1, (left / WEB_LIFE_TICKS) * 3)
+    }
     if (type === TOOL_GOO) {
       puddle.x = world.depX[i]!
       puddle.y = world.depY[i]!

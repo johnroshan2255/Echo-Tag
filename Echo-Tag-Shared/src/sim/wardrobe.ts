@@ -1,6 +1,7 @@
 import {
   KEY_GRAB_R,
   KEY_SPAWN_CLEAR,
+  NEST_RADIUS,
   PICKUP_SPACING,
   MAP_TILES_X,
   MAX_PLAYERS,
@@ -53,6 +54,7 @@ const ENTER_SQ = WARDROBE_ENTER_R * WARDROBE_ENTER_R
 const GRAB_SQ = KEY_GRAB_R * KEY_GRAB_R
 const CLEAR_SQ = KEY_SPAWN_CLEAR * KEY_SPAWN_CLEAR
 const SPACING_SQ = PICKUP_SPACING * PICKUP_SPACING
+const NEST_CLEAR_SQ = (NEST_RADIUS + 60) ** 2
 const COOLDOWN_TICKS = Math.ceil(WARDROBE_COOLDOWN_MS / TICK_MS)
 const MIN_HIDE_TICKS = Math.ceil(WARDROBE_MIN_HIDE_MS / TICK_MS)
 const MAX_HIDE_TICKS = Math.ceil(WARDROBE_MAX_HIDE_MS / TICK_MS)
@@ -85,6 +87,13 @@ export const spawnKeys = (w: World): void => {
         const dx = wardrobeCenterX(w.map, c) - x
         const dy = wardrobeCenterY(w.map, c) - y
         if (dx * dx + dy * dy < CLEAR_SQ) clear = false
+      }
+      // Never inside a nest spider's territory: a key at the spider's feet is not a
+      // risk/reward call, it is a tax.
+      for (let n = 0; clear && n * 2 < w.map.nests.length; n++) {
+        const dx = tileCenterX(w.map.nests[n * 2]!) - x
+        const dy = tileCenterY(w.map.nests[n * 2 + 1]!) - y
+        if (dx * dx + dy * dy < NEST_CLEAR_SQ) clear = false
       }
       // Keep keys apart from each other: one walk-over must never scoop up two.
       for (let k = 0; clear && k < i; k++) {

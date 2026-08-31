@@ -11,6 +11,7 @@ import { createFogLayer, type FogLayer } from '../render/fog.ts'
 import { createTerrorLayer, type TerrorLayer } from '../render/terror.ts'
 import { createInteriorLayer, type InteriorLayer } from '../render/interior.ts'
 import { createToolsLayer, type ToolsLayer } from '../render/toolsRenderer.ts'
+import { createMonsterFxLayer, setMonsterFxMap, type MonsterFxLayer } from '../render/monsterFx.ts'
 import type { GameMap } from '@echo-tag/shared'
 
 /**
@@ -40,6 +41,7 @@ export interface Layers {
   doors: DoorLayer
   echoes: EchoLayer
   fx: FxLayer
+  monsterFx: MonsterFxLayer
   bodies: BodyLayer
   markers: MarkerLayer
   fog: FogLayer
@@ -59,6 +61,7 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
   const doors = createDoorLayer(square)
   const echoes = createEchoLayer(square)
   const fx = createFxLayer(glow)
+  const monsterFx = createMonsterFxLayer(square)
   const bodies = createBodyLayer(square)
   const markers = createMarkerLayer()
   const fog = createFogLayer(fogTex)
@@ -72,6 +75,7 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
   worldRoot.addChild(ambience.container) // fireflies drift under everything that matters
   worldRoot.addChild(echoes.container)
   worldRoot.addChild(fx.container)
+  worldRoot.addChild(monsterFx.container) // webs, beam, portal swirls, nest spiders
   worldRoot.addChild(bodies.container)
   worldRoot.addChild(markers.container) // your keyholes float above everything in-world
   // Fog is screen-space, above the whole world — the arrow alone pierces it.
@@ -83,7 +87,7 @@ export const createLayers = (square: Texture, glow: Texture, fogTex: Texture): L
   stage.addChild(worldRoot)
   stage.addChild(overlay)
 
-  return { stage, worldRoot, overlay, arena, ambience, tools, doors, echoes, fx, bodies, markers, fog, interior, terror, indicator }
+  return { stage, worldRoot, overlay, arena, ambience, tools, doors, echoes, fx, monsterFx, bodies, markers, fog, interior, terror, indicator }
 }
 
 /** Rebuilds the map drawing and re-seeds the set dressing. Call on map change. */
@@ -91,4 +95,5 @@ export const setLayersMap = (layers: Layers, map: GameMap): void => {
   layoutArena(layers.arena, map)
   seedAmbience(layers.ambience, map)
   setLampsFromMap(layers.fx, map)
+  setMonsterFxMap(layers.monsterFx, map)
 }

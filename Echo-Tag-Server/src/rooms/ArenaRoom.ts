@@ -20,6 +20,7 @@ import {
   createWorld,
   enterPhase,
   packKeys,
+  queueAbility,
   queueToolUse,
   removePlayer,
   setIt,
@@ -120,6 +121,9 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     this.onMessage(MSG.Use, (client, invSlot: number) => {
       const slot = this.slotOf.get(client.sessionId)
       if (slot === undefined) return
+      // Slot 2 is the monster ability (spider web / alien beam) — the sim validates who
+      // may fire it and when; anyone else's press is a no-op there.
+      if (invSlot === 2) return queueAbility(this.world, slot)
       if (invSlot !== 0 && invSlot !== 1) return
       queueToolUse(this.world, slot, invSlot)
     })

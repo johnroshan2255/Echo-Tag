@@ -34,6 +34,8 @@ export interface AudioDirector {
   update(world: World, localSlot: number, dtMs: number): void
   onTag(world: World, localSlot: number, from: number, to: number): void
   flutter(): void
+  /** A direct full-presence sting — the nest spider's catch, and anything else personal. */
+  sting(gain: number): void
   setMuted(muted: boolean): void
   destroy(): void
 }
@@ -252,6 +254,11 @@ export const createAudioDirector = (): AudioDirector => {
 
     flutter(): void {
       batFlutter(engine, Math.random() * 1.6 - 0.8)
+    },
+
+    sting(gain: number): void {
+      if (!engine.ctx || engine.muted) return
+      tagSting(engine, { gain, pan: 0 })
     },
 
     setMuted(muted: boolean): void {

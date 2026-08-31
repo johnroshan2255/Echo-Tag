@@ -12,11 +12,16 @@ import {
   TOOL_SLOTS,
   TRANSFORM_DELAY_MS,
   WARDROBE_MAX_HIDE_MS,
+  Monster,
+  MONSTER_NAMES,
   addPlayer,
   createWorld,
   enterPhase,
   enterTurning,
   leaderboard,
+  monsterHasAbility,
+  monsterOf,
+  queueAbility,
   queueToolUse,
   setMap,
   stepWorld,
@@ -42,6 +47,7 @@ import { renderIndicator } from './render/indicator.ts'
 import { renderInterior } from './render/interior.ts'
 import { renderTerror } from './render/terror.ts'
 import { renderTools } from './render/toolsRenderer.ts'
+import { renderMonsterFx } from './render/monsterFx.ts'
 import { CLOSE_ICON, EMOTE_ICONS, JAR_ICON, SOUND_OFF_ICON, SOUND_ON_ICON, TRAP_ICON, drawIconToCanvas } from './render/pixelIcons.ts'
 import { createBanner } from './render/banner.ts'
 import {
@@ -232,12 +238,93 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return // typing in chat
     if (e.code === 'Digit1') useTool(0)
     else if (e.code === 'Digit2') useTool(1)
+    else if (e.code === 'Space' || e.code === 'Digit3') {
+      e.preventDefault()
+      useAbility()
+    }
   }
   addEventListener('keydown', onToolKey)
 
+  // ── The monster ability button: the It's web shot / beam, right-thumb zone ──
+  // Shown only while YOU are the monster on a map whose monster has an active ability;
+  // Space or 3 on keyboard. The sim (or server) validates everything again.
+  const useAbility = (): void => {
+    if (net) net.useAbility()
+    else queueAbility(world, LOCAL_SLOT)
+  }
+  const abilityBtn = document.createElement('button')
+  abilityBtn.id = 'ability-btn'
+  abilityBtn.style.cssText =
+    'position:fixed;bottom:calc(84px + env(safe-area-inset-bottom));right:calc(14px + env(safe-area-inset-right));' +
+    'width:64px;height:64px;padding:0;display:none;align-items:center;justify-content:center;' +
+    'background:rgba(22,18,38,.78);border:2px solid rgba(157,130,234,.6);border-radius:12px;' +
+    'touch-action:none;cursor:pointer;user-select:none;-webkit-user-select:none;z-index:30;'
+  const abilityCanvas = document.createElement('canvas')
+  abilityCanvas.width = 44
+  abilityCanvas.height = 44
+  abilityCanvas.style.cssText = 'width:44px;height:44px;image-rendering:pixelated;'
+  abilityBtn.appendChild(abilityCanvas)
+  abilityBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    useAbility()
+  })
+  document.body.appendChild(abilityBtn)
+  // Pixel glyphs, painted once per monster: a web for the spider, a bolt for the alien.
+  const paintAbilityGlyph = (monster: number): void => {
+    const c = abilityCanvas.getContext('2d')!
+    c.clearRect(0, 0, 44, 44)
+    c.fillStyle = monster === Monster.Spider ? '#cfc8e8' : '#9fffe0'
+    const px = (x: number, y: number): void => c.fillRect(x * 4, y * 4, 4, 4)
+    if (monster === Monster.Spider) {
+      for (let i = 1; i < 10; i++) {
+        px(i, 5)
+        px(5, i)
+        if (i < 9) {
+          px(i, i)
+          px(i, 10 - i)
+        }
+      }
+      px(5, 5)
+    } else {
+      for (const [x, y] of [[7, 1], [6, 2], [5, 3], [4, 4], [5, 5], [6, 5], [5, 6], [4, 7], [3, 8], [4, 6]] as const) px(x, y)
+      px(6, 4)
+      px(3, 9)
+    }
+  }
+  let shownAbility = -2 // -2 forces the first paint; -1 = hidden
+  const refreshAbility = (): void => {
+    const mine = world.itSlot === mySlot && world.phase === RoundPhase.Playing && monsterHasAbility(world)
+    const monster = mine ? monsterOf(world) : -1
+    if (monster !== shownAbility) {
+      shownAbility = monster
+      abilityBtn.style.display = mine ? 'flex' : 'none'
+      if (mine) paintAbilityGlyph(monster)
+    }
+    if (!mine) return
+    const cd = Math.max(0, world.abilityReadyTick - world.tick)
+    abilityBtn.style.opacity = cd > 0 ? '0.32' : '1'
+    abilityBtn.style.borderColor = cd > 0 ? 'rgba(157,130,234,.3)' : 'rgba(157,130,234,.9)'
+  }
+
   // ── The round banner: each arena announces itself ──
   const banner = createBanner()
-  banner.show(world.map.name)
+  banner.show(`${world.map.name} · ${MONSTER_NAMES[world.map.index]}`)
+
+  // ── Hazard & portal feedback: the world's own events, one path for net and local ──
+  const onHazardKill = (slot: number): void => {
+    if (slot !== mySlot) return
+    // You were caught: the respawn already happened in the sim — snap the camera to the
+    // new spot, say what it cost, and sting.
+    snapCamera(cam, world.x[slot]!, world.y[slot]!)
+    banner.show('CAUGHT! +5s')
+    audio.sting(0.9)
+  }
+  const onPortalUsed = (slot: number): void => {
+    if (slot !== mySlot) return
+    snapCamera(cam, world.x[slot]!, world.y[slot]!)
+    audio.flutter()
+  }
 
   // ── Mute button: bottom-right corner, clear of the thumb arcs ──
   const CHIP_STYLE =
@@ -428,6 +515,8 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       onTagged(anim, to, performance.now())
       audio.onTag(world, (mySlot = net.mySlot), from, to)
     })
+    net.onHazard(onHazardKill)
+    net.onPortal(onPortalUsed)
     net.onHostLeft(() => {
       showModal('The host has left the game.', false, () => {
         location.search = ''
@@ -458,7 +547,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       mySlot = net.mySlot
       setLayersMap(layers, world.map)
       snapCamera(cam, world.x[mySlot]!, world.y[mySlot]!)
-      banner.show(world.map.name)
+      banner.show(`${world.map.name} · ${MONSTER_NAMES[world.map.index]}`)
     })
   } else {
     // Offline gets the same results board as multiplayer, driven from the local world.
@@ -544,6 +633,8 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       onTagged(anim, ev.tagTo, performance.now())
       audio.onTag(world, LOCAL_SLOT, ev.tagFrom, ev.tagTo)
     }
+    if (ev.hazardKill !== NO_SLOT) onHazardKill(ev.hazardKill)
+    if (ev.portalUsed !== NO_SLOT) onPortalUsed(ev.portalUsed)
     if (ev.roundEnded) {
       // Between rounds is the platform's ad slot; audio stays silent for its duration.
       void pokiCommercialBreak(
@@ -577,7 +668,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       prevBodyY.set(world.bodyY)
       snapCamera(cam, world.x[LOCAL_SLOT]!, world.y[LOCAL_SLOT]!)
       lobbyUi?.update(localResultsView()) // phase is Countdown now — hides the board
-      banner.show(world.map.name)
+      banner.show(`${world.map.name} · ${MONSTER_NAMES[world.map.index]}`)
     }
     simTick++
   }
@@ -650,7 +741,9 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     renderAmbience(layers.ambience, now, cam.cx, cam.cy)
     if (layers.ambience.flockJustStarted) audio.flutter()
     renderTools(layers.tools, world, now)
+    renderMonsterFx(layers.monsterFx, world, now)
     refreshToolbar()
+    refreshAbility()
     hudTimer.update(world, now)
     // The metamorphosis wreath: bats whirl around whoever is turning into the ghost.
     if (turning !== NO_SLOT && world.active[turning] === 1) {
@@ -699,6 +792,8 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       phase: world.phase,
       clockMs: world.clockMs,
       itSlot: world.itSlot,
+      itX: world.itSlot === NO_SLOT ? 0 : Math.round(world.x[world.itSlot]!),
+      itY: world.itSlot === NO_SLOT ? 0 : Math.round(world.y[world.itSlot]!),
       turningSlot: world.turningSlot,
       ticksAsIt: world.itSlot === NO_SLOT ? 0 : world.tick - world.itSinceTick,
       // True while the local player cannot steer normally (metamorphosis stumble,
@@ -724,6 +819,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       globalThis.visualViewport?.removeEventListener('resize', relayoutSettled)
       removeEventListener('keydown', onToolKey)
       toolbar.remove()
+      abilityBtn.remove()
       muteBtn.remove()
       leaveBtn.remove()
       emoteBar.remove()

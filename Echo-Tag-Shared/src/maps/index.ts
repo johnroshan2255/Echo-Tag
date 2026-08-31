@@ -1,4 +1,4 @@
-import { MAP_COUNT, MAP_TILE, MAP_TILES_X, MAP_TILES_Y, MAX_DOORS, MAX_WARDROBES, SPAWNS_PER_MAP, TILE_FURNITURE } from '../constants.ts'
+import { MAP_COUNT, MAP_TILE, MAP_TILES_X, MAP_TILES_Y, MAX_DOORS, MAX_NESTS, MAX_PORTALS, MAX_WARDROBES, SPAWNS_PER_MAP, TILE_FURNITURE } from '../constants.ts'
 
 /**
  * The four maps.
@@ -51,6 +51,16 @@ export interface GameMap {
    * steps out onto, resolved at build time so the simulation never searches.
    */
   readonly wardrobes: Int16Array
+  /**
+   * Portals as (tx, ty, destTx, destTy) quads, at most MAX_PORTALS directed entries.
+   * Step on (tx, ty) and you are at (destTx, destTy); a two-way pair is two entries.
+   */
+  readonly portals: Int16Array
+  /**
+   * Spider nests as (tx, ty) pairs, at most MAX_NESTS. The nest tile is open — the
+   * spider stands on it — and its webbed territory is drawn around it by the renderer.
+   */
+  readonly nests: Int16Array
 }
 
 const TX = MAP_TILES_X
@@ -96,6 +106,8 @@ const finish = (
   doors: number[] = [],
   decor: number[] = [],
   wardrobeTiles: number[] = [], // (tx, ty) pairs; exits are resolved here
+  portals: number[] = [], // (tx, ty, destTx, destTy) directed entries
+  nests: number[] = [], // (tx, ty) pairs
 ): GameMap => {
   if (spawns.length !== SPAWNS_PER_MAP * 2) {
     throw new Error(`${name}: ${spawns.length / 2} spawns, need ${SPAWNS_PER_MAP}`)
@@ -141,6 +153,34 @@ const finish = (
     if (walls[ty * TX + tx] === 0) throw new Error(`${name}: window at (${tx},${ty}) is not in a wall`)
   }
 
+  // Portals: both ends walkable, and never directly on a spawn tile — nobody starts a
+  // round mid-warp.
+  if (portals.length / 4 > MAX_PORTALS) throw new Error(`${name}: ${portals.length / 4} portals, max ${MAX_PORTALS}`)
+  for (let p = 0; p < portals.length; p += 4) {
+    for (const [px, py] of [[portals[p]!, portals[p + 1]!], [portals[p + 2]!, portals[p + 3]!]]) {
+      if (walls[py! * TX + px!] !== 0) throw new Error(`${name}: portal tile (${px},${py}) is not walkable`)
+      for (let sp = 0; sp < spawns.length; sp += 2) {
+        if (spawns[sp] === px && spawns[sp + 1] === py) {
+          throw new Error(`${name}: portal at (${px},${py}) sits on a spawn tile`)
+        }
+      }
+    }
+  }
+
+  // Nests: on open ground, and far enough from every spawn that nobody spawns inside a
+  // spider's territory (NEST_RADIUS is ~1.6 tiles; demand 3).
+  if (nests.length / 2 > MAX_NESTS) throw new Error(`${name}: ${nests.length / 2} nests, max ${MAX_NESTS}`)
+  for (let n = 0; n < nests.length; n += 2) {
+    const nx = nests[n]!
+    const ny = nests[n + 1]!
+    if (walls[ny * TX + nx] !== 0) throw new Error(`${name}: nest at (${nx},${ny}) is not on open ground`)
+    for (let sp = 0; sp < spawns.length; sp += 2) {
+      const dx = spawns[sp]! - nx
+      const dy = spawns[sp + 1]! - ny
+      if (dx * dx + dy * dy < 9) throw new Error(`${name}: nest at (${nx},${ny}) is too close to a spawn`)
+    }
+  }
+
   return {
     index,
     name,
@@ -150,6 +190,8 @@ const finish = (
     doors: new Int16Array(doors),
     decor: new Int16Array(decor),
     wardrobes: new Int16Array(wardrobes),
+    portals: new Int16Array(portals),
+    nests: new Int16Array(nests),
   }
 }
 
@@ -193,6 +235,15 @@ const foundry = (): GameMap => {
   ], [
     // One hiding spot per quadrant.
     3, 3, 36, 3, 3, 18, 36, 18,
+  ], [
+    // One two-way portal linking the top and bottom mid-halls, diagonal-ish so the warp
+    // is worth its cooldown.
+    20, 5, 19, 16,
+    19, 16, 20, 5,
+  ], [
+    // A nest in the top-left and bottom-right quadrant interiors — off the main halls,
+    // exactly where a cornered runner is tempted to cut through.
+    9, 3, 30, 18,
   ])
 }
 
@@ -219,6 +270,14 @@ const pillars = (): GameMap => {
   ], [
     // The courtyard keeps two garden sheds.
     7, 2, 32, 19,
+  ], [
+    // A two-way portal across the mid lane: the forest's fairy rings.
+    6, 11, 33, 11,
+    33, 11, 6, 11,
+  ], [
+    // The forest is the spiders' home turf: three nests guarding quiet clearings —
+    // kept clear of the canonical test lanes (x3-8/y6-10 and the mid crossing).
+    9, 16, 37, 15, 20, 17,
   ])
 }
 
@@ -252,7 +311,13 @@ const serpentine = (): GameMap => {
   ], [
     // Lane-end wardrobes: bolt-holes at the exact spots a chase corners you.
     34, 2, 5, 10, 34, 13, 5, 18,
+  ], [
+    // A two-way portal between the first and last lanes: the long way, skipped — with
+    // the spider's webs waiting, running the comb is the risk.
+    5, 2, 34, 19,
+    34, 19, 5, 2,
   ])
+  // No nests: the cave's monster IS the spider.
 }
 
 // ── Map 3: WARRENS — small chambers, many doorways; the ambush map ───────────
@@ -290,7 +355,12 @@ const warrens = (): GameMap => {
   ], [
     // The house map: a wardrobe in most chambers — this is where hiding lives.
     2, 4, 37, 3, 13, 9, 29, 14, 6, 18, 34, 8,
+  ], [
+    // A two-way portal between opposite corner chambers: the hive's transit tubes.
+    5, 4, 35, 18,
+    35, 18, 5, 4,
   ])
+  // No nests: the alien's beam is this map's danger.
 }
 
 export const MAPS: readonly GameMap[] = [foundry(), pillars(), serpentine(), warrens()]

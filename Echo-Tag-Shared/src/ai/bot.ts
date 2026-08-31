@@ -1,4 +1,4 @@
-import { MAX_PLAYERS, SPAWNS_PER_MAP } from '../constants.ts'
+import { MAX_PLAYERS, NEST_RADIUS, SPAWNS_PER_MAP } from '../constants.ts'
 import { tileCenterX, tileCenterY } from '../maps/index.ts'
 import { encodeInput } from '../sim/input.ts'
 import type { World } from '../sim/world.ts'
@@ -71,6 +71,24 @@ export const syntheticDriver = (
     if (!Number.isNaN(state.escape[s]!)) {
       dx = Math.cos(state.escape[s]!)
       dy = Math.sin(state.escape[s]!)
+    }
+
+    // Nest spiders eat careless bots: a repulsion field around every nest, strong enough
+    // that a wandering bot skirts the web ring instead of blundering into it. The It
+    // ignores it (spiders ignore the It right back).
+    if (s !== w.itSlot) {
+      const nests = w.map.nests
+      const AVOID = NEST_RADIUS + 90
+      for (let n = 0; n < nests.length; n += 2) {
+        const nx = px - tileCenterX(nests[n]!)
+        const ny = py - tileCenterY(nests[n + 1]!)
+        const d = Math.sqrt(nx * nx + ny * ny)
+        if (d > AVOID || d < 1) continue
+        const push = ((AVOID - d) / AVOID) * 3
+        const len = Math.sqrt(dx * dx + dy * dy) || 1
+        dx = dx / len + (nx / d) * push
+        dy = dy / len + (ny / d) * push
+      }
     }
 
     state.lastX[s] = px

@@ -132,6 +132,73 @@ export const TRAP_RADIUS = 36
 export const TRAP_ARM_MS = 1_200
 export const TRAP_LIFE_MS = 25_000
 
+// ── Monsters ─────────────────────────────────────────────────────────────────
+// Each map is a world with its own monster — the form the "It" player takes there — and
+// each monster hunts differently. The ghost's weapon is its echo trail (the game's
+// namesake); the spider and the alien have no trail at all and get an active ability
+// instead, fired through the same validated use-message the tools ride.
+export const Monster = {
+  /** The manor's ghost: echo trails, the classic kit. */
+  Ghost: 0,
+  /** The forest wraith: the ghost's kit in a woodland skin — same trail, same rules. */
+  Wraith: 1,
+  /** The cave spider: no trail; shoots webs that root runners and linger as patches. */
+  Spider: 2,
+  /** The hive alien: no trail; charges a telegraphed beam that knocks runners out. */
+  Alien: 3,
+} as const
+export type Monster = (typeof Monster)[keyof typeof Monster]
+/** Which monster hunts on which map, indexed by map. */
+export const MONSTER_BY_MAP: readonly Monster[] = [Monster.Ghost, Monster.Wraith, Monster.Spider, Monster.Alien]
+export const MONSTER_NAMES: readonly string[] = ['GHOST', 'WRAITH', 'SPIDER', 'ALIEN']
+/** Trail-monsters leave echo trails; ability-monsters get web/beam instead. */
+export const monsterHasTrail = (m: Monster): boolean => m === Monster.Ghost || m === Monster.Wraith
+
+// Web shot (spider): a projectile that roots the first runner it touches and splats into
+// a lingering slow-patch where it lands. Fixed pool, deterministic, allocation-free.
+export const MAX_WEB_SHOTS = 3
+export const WEB_SHOT_SPEED = 520 // world units/sec — outruns a runner, dodgeable sideways
+export const WEB_SHOT_LIFE_MS = 900
+export const WEB_SHOT_RADIUS = 26 // hit radius vs players
+export const WEB_ROOT_MS = 2_200 // rooted runner: the goo slow, but longer
+export const WEB_COOLDOWN_MS = 4_000
+/** A landed web lingers as a slow-patch, deployed into the shared tools pool. */
+export const TOOL_WEB = 3
+export const WEB_PATCH_LIFE_MS = 6_000
+export const WEB_PATCH_RADIUS = 70
+
+// Beam (alien): aim locks at the press, a visible charge telegraph, then a wall-stopped
+// line that knocks out everyone it crosses. High reward, fully dodgeable during charge.
+export const BEAM_CHARGE_MS = 600
+export const BEAM_FLASH_MS = 220 // the fired beam stays visible this long
+export const BEAM_RANGE = 640 // world units, stopped early by the first wall
+export const BEAM_HALF_WIDTH = 26
+export const BEAM_COOLDOWN_MS = 6_000
+
+// ── Nest spiders (environmental hazard) ──────────────────────────────────────
+// Authored spider nests on some maps: wander into the webbed territory and the nest
+// spider lunges; hold contact for a beat and it catches you — you respawn at the spawn
+// point farthest from the nest and your score (time as It, lower is better) is penalised.
+// The It is ignored: monsters do not fear spiders.
+export const MAX_NESTS = 4
+export const NEST_RADIUS = 130 // territory: enter it and the spider wakes
+export const NEST_LEASH = 300 // the spider gives up beyond this from home
+export const NEST_SPEED = 300 // units/sec while lunging — faster than you, briefly
+export const NEST_RETURN_SPEED = 170
+export const NEST_KILL_R = 30 // contact radius
+export const NEST_KILL_MS = 400 // contact must hold this long — brushing past is escapable
+export const NEST_PENALTY_MS = 5_000 // added straight to itTimeMs: the score cost
+export const NEST_REST_MS = 3_000 // the spider feeds before hunting again
+export const NEST_RESPAWN_IMMUNITY_MS = 2_000
+
+// ── Portals ──────────────────────────────────────────────────────────────────
+// Linked teleport pads. Step on one and you are at its twin; a short per-player cooldown
+// stops ping-ponging. Deterministic, and the client renders the jump as a snap (any
+// teleport-sized position delta already snaps rather than glides).
+export const MAX_PORTALS = 4 // directed entries per map: a two-way pair uses two
+export const PORTAL_R = 44
+export const PORTAL_COOLDOWN_MS = 2_000
+
 // ── Transformation (tag → new ghost) ─────────────────────────────────────────
 // A tag no longer swaps the ghost instantly. The touched player spends TRANSFORM_DELAY_MS
 // "turning" — stumbling at TURNING_SPEED_MULT, wreathed in the bat animation — while the

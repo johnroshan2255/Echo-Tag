@@ -3,6 +3,7 @@ import {
   GOO_LINGER_MS,
   GOO_RADIUS,
   KEY_SPAWN_CLEAR,
+  NEST_RADIUS,
   PICKUP_SPACING,
   MAP_TILES_X,
   MAX_DEPLOYED,
@@ -15,7 +16,9 @@ import {
   TOOL_NONE,
   TOOL_SLOTS,
   TOOL_TRAP,
+  TOOL_WEB,
   TRAP_ARM_MS,
+  WEB_PATCH_RADIUS,
   TRAP_LIFE_MS,
   TRAP_RADIUS,
   UNCONSCIOUS_MS,
@@ -46,9 +49,11 @@ import { random, type World } from './world.ts'
 
 const GRAB_SQ = TOOL_GRAB_R * TOOL_GRAB_R
 const GOO_SQ = GOO_RADIUS * GOO_RADIUS
+const WEB_SQ = WEB_PATCH_RADIUS * WEB_PATCH_RADIUS
 const TRAP_SQ = TRAP_RADIUS * TRAP_RADIUS
 const CLEAR_SQ = KEY_SPAWN_CLEAR * KEY_SPAWN_CLEAR
 const SPACING_SQ = PICKUP_SPACING * PICKUP_SPACING
+const NEST_CLEAR_SQ = (NEST_RADIUS + 60) ** 2
 const GOO_LIFE_TICKS = Math.ceil(GOO_LIFE_MS / TICK_MS)
 const GOO_LINGER_TICKS = Math.ceil(GOO_LINGER_MS / TICK_MS)
 const TRAP_LIFE_TICKS = Math.ceil(TRAP_LIFE_MS / TICK_MS)
@@ -96,6 +101,12 @@ export const spawnTools = (w: World): void => {
         const dx = w.keyX[k]! - x
         const dy = w.keyY[k]! - y
         if (dx * dx + dy * dy < SPACING_SQ) clear = false
+      }
+      // Never inside a nest spider's territory — same fairness rule as the keys.
+      for (let n = 0; clear && n * 2 < w.map.nests.length; n++) {
+        const dx = tileCenterX(w.map.nests[n * 2]!) - x
+        const dy = tileCenterY(w.map.nests[n * 2 + 1]!) - y
+        if (dx * dx + dy * dy < NEST_CLEAR_SQ) clear = false
       }
       if (clear) break
     }
@@ -190,6 +201,20 @@ export const updateTools = (w: World): void => {
         const dx = w.x[s]! - dxp
         const dy = w.y[s]! - dyp
         if (dx * dx + dy * dy > GOO_SQ) continue
+        w.slowedUntilTick[s] = w.tick + GOO_LINGER_TICKS
+      }
+      continue
+    }
+
+    // Web patch (a landed spider web, deployed by sim/monster.ts): the goo rules with the
+    // spider's radius — the spider itself walks its own webs freely.
+    if (type === TOOL_WEB) {
+      for (let s = 0; s < MAX_PLAYERS; s++) {
+        if (s === owner || w.active[s] === 0) continue
+        if (w.hiddenIn[s] !== NO_SLOT) continue
+        const dx = w.x[s]! - dxp
+        const dy = w.y[s]! - dyp
+        if (dx * dx + dy * dy > WEB_SQ) continue
         w.slowedUntilTick[s] = w.tick + GOO_LINGER_TICKS
       }
       continue
