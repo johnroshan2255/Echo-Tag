@@ -198,6 +198,24 @@ const drawFrame = (canvas: HTMLCanvasElement, t: number): void => {
   }
   ctx.globalAlpha = 1
 
+  // Echo squares: big, slow, barely-there blocks adrift in the dark — the game's own
+  // trail-wall language, filling the empty reaches of the backdrop.
+  for (let i = 0; i < 14; i++) {
+    const bx = rnd()
+    const by = rnd()
+    const ph = rnd() * 6.28
+    const size = (9 + rnd() * 17) * scale
+    ctx.globalAlpha = 0.025 + Math.max(0, Math.sin(t * 0.45 + ph * 2)) * 0.05
+    ctx.fillStyle = i % 3 === 0 ? '#ffc07a' : i % 3 === 1 ? '#cfc5e8' : '#8a7ab8'
+    ctx.fillRect(
+      (bx + Math.sin(t * 0.05 + ph) * 0.03) * w,
+      (by + Math.cos(t * 0.04 + ph * 1.3) * 0.025) * h,
+      size,
+      size,
+    )
+  }
+  ctx.globalAlpha = 1
+
   // ── THE CHASE: the ghost, its echo trail, a runner one step ahead ──
   // Landscape keeps it lower-left of the menu column; portrait phones move it to the
   // free strip along the bottom, where the menu never reaches.

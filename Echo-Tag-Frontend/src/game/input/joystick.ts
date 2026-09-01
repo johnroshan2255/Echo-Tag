@@ -85,6 +85,10 @@ export const createJoystick = (): Joystick => {
 
   const onStart = (e: TouchEvent): void => {
     if (touchId !== -1) return // one thumb steers; a second is ignored
+    // While the boot menu is still up (including the loading beat after Play is pressed),
+    // there is nothing to steer — and menu touches pass THROUGH the menu to the canvas
+    // (the menu is pointer-events: none except its buttons), so target checks can't see it.
+    if (document.getElementById('menu')) return
     const touch = e.changedTouches[0]!
     const t = e.target as HTMLElement | null
     if (t?.closest('button, input, a, #lobby, #menu, #chat-panel, #toolbar')) return // real UI wins
