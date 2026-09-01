@@ -101,7 +101,7 @@ menu.innerHTML = `
        (20:11), so it must stay big enough to read: as wide as the menu allows, capped by
        height so landscape phones keep the Play button on screen. */
     #bmap { display: flex; align-items: stretch; justify-content: center; margin: 0 0 12px;
-      gap: 0; width: min(92vw, 440px); box-shadow: 6px 6px 0 rgba(0,0,0,.4); }
+      gap: 0; width: min(92vw, 440px); }
     #bmap button { pointer-events: auto; cursor: pointer; border: 3px solid #3a3150;
       background: #262048; color: #e9ddff; width: 44px; flex-shrink: 0;
       font: 800 18px/1 ui-monospace, monospace; }
@@ -131,13 +131,12 @@ menu.innerHTML = `
     #info { position: absolute; top: calc(12px + env(safe-area-inset-top));
       right: calc(12px + env(safe-area-inset-right)); width: 44px; height: 44px;
       border: 3px solid #3a3150; background: #262048; color: #ffc07a;
-      font: 800 italic 20px/1 Georgia, serif; box-shadow: 4px 4px 0 rgba(0,0,0,.35); }
-    #info:active { background: #3a3150; transform: translate(2px,2px);
-      box-shadow: 2px 2px 0 rgba(0,0,0,.35); }
+      font: 800 italic 20px/1 Georgia, serif; }
+    #info:active { background: #3a3150; transform: translate(2px,2px); }
   </style>
-  <button id="info" type="button">i</button>
+  <button id="info" type="button" class="px-s">i</button>
   <h1 id="title">ECHO TAG</h1>
-  <div id="bmap">
+  <div id="bmap" class="px-s">
     <button id="bmap-prev" type="button" aria-label="previous map">&#9664;</button>
     <div id="bmap-preview">
       <canvas id="bmap-canvas"></canvas>
@@ -148,12 +147,12 @@ menu.innerHTML = `
     </div>
     <button id="bmap-next" type="button" aria-label="next map">&#9654;</button>
   </div>
-  <button id="play" type="button" aria-label="Play with bots">PLAY</button>
+  <button id="play" type="button" class="px bv-a" aria-label="Play with bots">PLAY</button>
   <p id="status">Don't be It when the clock runs out.</p>
   <div id="mp">
-    <button id="quick" type="button">QUICK MATCH</button>
-    <button id="host" type="button">HOST ROOM</button>
-    <form id="joinform"><input id="codein" maxlength="5" placeholder="CODE"
+    <button id="quick" type="button" class="px-s bv">QUICK MATCH</button>
+    <button id="host" type="button" class="px-s bv">HOST ROOM</button>
+    <form id="joinform" class="px-s"><input id="codein" maxlength="5" placeholder="CODE"
       autocomplete="off" spellcheck="false" /><button id="joinbtn" type="submit">JOIN</button></form>
   </div>`
 ui.appendChild(menu)
@@ -170,7 +169,7 @@ const bmapName = menu.querySelector('#bmap-name') as HTMLElement
 const bmapPips = menu.querySelector('#bmap-pips') as HTMLElement
 const bmapCanvas = menu.querySelector('#bmap-canvas') as HTMLCanvasElement
 const bmapCtx = bmapCanvas.getContext('2d')!
-bmapPips.innerHTML = '<i></i>'.repeat(MAP_COUNT)
+bmapPips.innerHTML = '<i class="px-xs"></i>'.repeat(MAP_COUNT)
 codeIn.addEventListener('input', () => {
   codeIn.value = codeIn.value.toUpperCase().replace(/[^A-Z]/g, '')
 })

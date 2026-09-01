@@ -121,8 +121,10 @@ export const showHowTo = (): void => {
       #howto { position: fixed; inset: 0; z-index: 3; display: grid; place-items: center;
         background: rgba(10,7,20,.72); pointer-events: auto; }
       #howto-panel { width: min(92vw, 460px); max-height: min(84vh, 84svh); overflow-y: auto;
-        background: #1d1830; border: 3px solid #3a3150; box-shadow: 6px 6px 0 rgba(0,0,0,.45);
+        background: #1d1830; border: 3px solid #3a3150;
         padding: 16px 18px calc(16px + env(safe-area-inset-bottom)); }
+      /* Shadow on the wrapper: a same-element clip-path would clip the shadow away. */
+      #howto-wrap { filter: drop-shadow(6px 6px 0 rgba(0,0,0,.45)); }
       #howto-head { display: flex; align-items: center; justify-content: space-between;
         gap: 10px; margin: 0 0 10px; }
       #howto-head h2 { margin: 0; color: #ffc07a; font: 900 17px/1 system-ui, sans-serif;
@@ -137,15 +139,14 @@ export const showHowTo = (): void => {
         width: 11px; height: 11px; background: var(--c); }
       #howto-ok { display: block; margin: 0 auto; cursor: pointer; border: 0;
         padding: 12px 34px; color: #241505; background: #ffc07a;
-        font: 800 15px/1 system-ui, sans-serif; letter-spacing: .12em;
-        box-shadow: 4px 4px 0 rgba(0,0,0,.4); }
-      #howto-ok:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 rgba(0,0,0,.4); }
+        font: 800 15px/1 system-ui, sans-serif; letter-spacing: .12em; }
+      #howto-ok:active { transform: translate(2px,2px); }
     </style>
-    <div id="howto-panel" role="dialog" aria-modal="true" aria-label="${T.how}">
-      <div id="howto-head"><h2>${T.how}</h2><button id="howto-x" type="button" aria-label="close">✕</button></div>
+    <div id="howto-wrap"><div id="howto-panel" class="px" role="dialog" aria-modal="true" aria-label="${T.how}">
+      <div id="howto-head"><h2>${T.how}</h2><button id="howto-x" type="button" class="px-xs bv" aria-label="close">✕</button></div>
       <ul>${S.rules.map((r, i) => `<li style="--c:${BULLETS[i]}">${r}</li>`).join('')}</ul>
-      <button id="howto-ok" type="button">${S.ok}</button>
-    </div>`
+      <button id="howto-ok" type="button" class="px-s bv-a">${S.ok}</button>
+    </div></div>`
 
   const close = (): void => {
     removeEventListener('keydown', onKey)

@@ -27,23 +27,23 @@ export const createLobbyUi = (
   const root = document.createElement('div')
   root.id = 'lobby'
   root.innerHTML = `
-    <div id="lobby-card">
+    <div id="lobby-shadow"><div id="lobby-card" class="px">
       <h2 id="lobby-title">${TG.finding}</h2>
       <p id="lobby-code" hidden>${TG.roomCode} <b></b><span>${TG.shareIt}</span></p>
-      <button id="lobby-invite" type="button" hidden>${TG.copyLink}</button>
+      <button id="lobby-invite" type="button" class="px-s bv" hidden>${TG.copyLink}</button>
       <p id="lobby-count"></p>
       <div id="lobby-roster"></div>
-      <div id="lobby-bots" hidden>
+      <div id="lobby-bots" class="px-s" hidden>
         <button id="bots-minus" type="button" aria-label="fewer bots">&#8211;</button>
         <span id="bots-label"></span>
         <button id="bots-plus" type="button" aria-label="more bots">+</button>
       </div>
-      <div id="lobby-mins" hidden>
+      <div id="lobby-mins" class="px-s" hidden>
         <button id="mins-minus" type="button" aria-label="shorter round">&#8211;</button>
         <span id="mins-label"></span>
         <button id="mins-plus" type="button" aria-label="longer round">+</button>
       </div>
-      <div id="lobby-map" hidden>
+      <div id="lobby-map" class="px-s" hidden>
         <button id="map-minus" type="button" aria-label="previous map">&#9664;</button>
         <div id="map-preview">
           <canvas id="map-canvas"></canvas>
@@ -54,18 +54,19 @@ export const createLobbyUi = (
         </div>
         <button id="map-plus" type="button" aria-label="next map">&#9654;</button>
       </div>
-      <button id="lobby-start" type="button" hidden>${TG.start}</button>
+      <button id="lobby-start" type="button" class="px-s bv-a" hidden>${TG.start}</button>
       <p id="lobby-hint"></p>
-    </div>`
+    </div></div>`
   const style = document.createElement('style')
   style.textContent = `
     /* grid + margin:auto (not place-content) so a card taller than a landscape phone
        scrolls instead of clipping its top and bottom off-screen. */
     #lobby { position: fixed; inset: 0; z-index: 3; display: grid; overflow-y: auto;
       background: rgba(13, 10, 22, .72); font-family: system-ui, sans-serif; }
+    /* Shadow on the wrapper: a same-element clip-path would clip the shadow away. */
+    #lobby-shadow { margin: auto; filter: drop-shadow(8px 8px 0 rgba(0,0,0,.35)); }
     #lobby-card { background: #1d1830; border: 4px solid #3a3150; padding: 26px 34px;
-      min-width: 300px; text-align: center; box-shadow: 8px 8px 0 rgba(0,0,0,.35);
-      margin: auto; }
+      min-width: 300px; text-align: center; }
     #lobby-title { color: #f6f1ff; font-size: 18px; letter-spacing: .14em; margin: 0 0 14px; }
     #lobby-code { color: #b3a8c9; font-size: 12px; letter-spacing: .1em; margin: 0 0 14px; }
     #lobby-code b { display: block; color: #ffc07a; font-size: 34px; letter-spacing: .3em;
@@ -84,10 +85,10 @@ export const createLobbyUi = (
     .lobby-dot.bot { opacity: .38; }
     #lobby-start { pointer-events: auto; cursor: pointer; border: 0; padding: 14px 34px;
       font: 800 16px/1 system-ui, sans-serif; letter-spacing: .12em; color: #241505;
-      background: #ffc07a; box-shadow: 4px 4px 0 rgba(0,0,0,.4); }
-    #lobby-start:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 rgba(0,0,0,.4); }
+      background: #ffc07a; }
+    #lobby-start:active { transform: translate(2px, 2px); }
     #lobby-start:disabled { background: #574a3a; color: #2e2517; cursor: default;
-      transform: none; box-shadow: 4px 4px 0 rgba(0,0,0,.4); }
+      transform: none; }
     #lobby-count { color: #f6f1ff; font-size: 13px; letter-spacing: .12em; margin: 0 0 10px; }
     #lobby-bots, #lobby-mins, #lobby-map { pointer-events: auto; display: flex; gap: 0; justify-content: center;
       align-items: stretch; margin: 0 0 12px; }
@@ -182,7 +183,7 @@ export const createLobbyUi = (
   const mapRow = root.querySelector('#lobby-map') as HTMLElement
   const mapLabel = root.querySelector('#map-label') as HTMLElement
   const mapPips = root.querySelector('#map-pips') as HTMLElement
-  mapPips.innerHTML = '<i></i>'.repeat(MAP_COUNT)
+  mapPips.innerHTML = '<i class="px-xs"></i>'.repeat(MAP_COUNT)
   const mapMinus = root.querySelector('#map-minus') as HTMLButtonElement
   const mapPlus = root.querySelector('#map-plus') as HTMLButtonElement
   const mapCanvas = root.querySelector('#map-canvas') as HTMLCanvasElement
@@ -266,7 +267,7 @@ export const createLobbyUi = (
         roster.innerHTML = view.scores
           .map(
             (p) =>
-              `<div class="lobby-dot${p.isBot ? ' bot' : ''}" style="background:${hex(PLAYER_COLORS[p.colorSlot % PLAYER_COLORS.length]!)}"></div>`,
+              `<div class="lobby-dot px-xs${p.isBot ? ' bot' : ''}" style="background:${hex(PLAYER_COLORS[p.colorSlot % PLAYER_COLORS.length]!)}"></div>`,
           )
           .join('')
       } else {
@@ -286,9 +287,9 @@ export const createLobbyUi = (
           .map((p, i) => {
             const tag =
               i === 0 && view.scores.length > 1
-                ? `<span class="lobby-tag win">${TG.winner}</span>`
+                ? `<span class="lobby-tag px-xs win">${TG.winner}</span>`
                 : i === view.scores.length - 1 && secondWorst && worst!.itTimeMs > secondWorst.itTimeMs
-                  ? `<span class="lobby-tag lose">${TG.lost}</span>`
+                  ? `<span class="lobby-tag px-xs lose">${TG.lost}</span>`
                   : ''
             return (
               `<div class="lobby-row"><span class="who">` +

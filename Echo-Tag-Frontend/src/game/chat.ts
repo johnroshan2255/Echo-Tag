@@ -54,11 +54,12 @@ export const createChatUi = (opts: {
   // ── The bubble button ──
   const button = document.createElement('button')
   button.id = 'chat-btn'
+  button.classList.add('px-s')
   button.style.cssText =
     'position:fixed;top:calc(14px + env(safe-area-inset-top));left:calc(12px + env(safe-area-inset-left));' +
     'width:52px;height:52px;padding:0;display:flex;align-items:center;justify-content:center;' +
     `background:rgba(22,18,38,.72);border:${CHALK_BORDER};border-radius:0;z-index:50;` +
-    'touch-action:none;cursor:pointer;box-shadow:3px 3px 0 rgba(0,0,0,.4);user-select:none;-webkit-user-select:none;'
+    'touch-action:none;cursor:pointer;user-select:none;-webkit-user-select:none;'
   const buttonCanvas = document.createElement('canvas')
   buttonCanvas.width = 44
   buttonCanvas.height = 44
@@ -90,6 +91,7 @@ export const createChatUi = (opts: {
   title.textContent = TG.chatTitle
   title.style.cssText = `font:${FONT};font-weight:700;letter-spacing:2px;color:#fff3dc;`
   const closeBtn = document.createElement('button')
+  closeBtn.classList.add('px-xs')
   closeBtn.style.cssText =
     'width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;' +
     `background:transparent;border:${CHALK_BORDER};border-radius:0;cursor:pointer;`
@@ -122,6 +124,7 @@ export const createChatUi = (opts: {
     'flex:1;min-width:0;font:16px ui-monospace, Menlo, Consolas, monospace;color:#fff;' +
     `background:rgba(255,255,255,.07);border:${CHALK_BORDER};border-radius:0;padding:8px 10px;outline:none;`
   const sendBtn = document.createElement('button')
+  sendBtn.classList.add('px-xs')
   sendBtn.style.cssText =
     'width:44px;height:44px;flex:none;padding:0;display:flex;align-items:center;justify-content:center;' +
     `background:rgba(22,18,38,.72);border:${CHALK_BORDER};border-radius:0;cursor:pointer;`

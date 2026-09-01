@@ -203,10 +203,11 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   const slotCanvases: HTMLCanvasElement[] = []
   const slotBtns = [0, 1].map((k) => {
     const b = document.createElement('button')
+    b.className = 'px-s'
     b.style.cssText =
       'width:52px;height:52px;padding:0;display:flex;align-items:center;' +
       'justify-content:center;background:rgba(22,18,38,.72);border:1.5px solid rgba(255,243,220,.22);' +
-      'border-radius:10px;touch-action:none;cursor:pointer;'
+      'touch-action:none;cursor:pointer;'
     const c = document.createElement('canvas')
     c.width = 48
     c.height = 48
@@ -255,10 +256,11 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   }
   const abilityBtn = document.createElement('button')
   abilityBtn.id = 'ability-btn'
+  abilityBtn.className = 'px-s'
   abilityBtn.style.cssText =
     'position:fixed;bottom:calc(84px + env(safe-area-inset-bottom));right:calc(14px + env(safe-area-inset-right));' +
     'width:64px;height:64px;padding:0;display:none;align-items:center;justify-content:center;' +
-    'background:rgba(22,18,38,.78);border:2px solid rgba(157,130,234,.6);border-radius:12px;' +
+    'background:rgba(22,18,38,.78);border:2px solid rgba(157,130,234,.6);' +
     'touch-action:none;cursor:pointer;user-select:none;-webkit-user-select:none;z-index:30;'
   const abilityCanvas = document.createElement('canvas')
   abilityCanvas.width = 44
@@ -330,9 +332,10 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   const CHIP_STYLE =
     'width:52px;height:52px;padding:0;display:flex;align-items:center;justify-content:center;' +
     'background:rgba(22,18,38,.72);border:1.5px solid rgba(255,243,220,.22);' +
-    'border-radius:10px;touch-action:none;cursor:pointer;user-select:none;-webkit-user-select:none;'
+    'touch-action:none;cursor:pointer;user-select:none;-webkit-user-select:none;'
   const muteBtn = document.createElement('button')
   muteBtn.id = 'mute-btn'
+  muteBtn.classList.add('px-s')
   muteBtn.style.cssText =
     CHIP_STYLE +
     'position:fixed;bottom:calc(14px + env(safe-area-inset-bottom));right:calc(14px + env(safe-area-inset-right));z-index:30;'
@@ -363,9 +366,12 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     overlay.style.cssText =
       'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:100;display:grid;place-content:center;padding:20px;'
     
+    // Shadow on a wrapper: a same-element clip-path would clip the drop-shadow away.
+    const wrap = document.createElement('div')
+    wrap.style.cssText = 'filter:drop-shadow(8px 8px 0 rgba(0,0,0,0.4));'
     const box = document.createElement('div')
-    box.style.cssText =
-      'background:#262048;border:3px solid #3a3150;box-shadow:8px 8px 0 rgba(0,0,0,0.4);padding:32px;text-align:center;'
+    box.className = 'px'
+    box.style.cssText = 'background:#262048;border:3px solid #3a3150;padding:32px;text-align:center;'
     
     const p = document.createElement('p')
     p.style.cssText = 'font:700 18px/1.4 system-ui,sans-serif;color:#f6f1ff;margin:0 0 26px;max-width:280px;text-transform:uppercase;letter-spacing:0.05em;'
@@ -375,38 +381,42 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     const row = document.createElement('div')
     row.style.cssText = 'display:flex;gap:16px;justify-content:center;'
     
-    const btnStyle = 'padding:14px 24px;font:800 16px/1 system-ui,sans-serif;letter-spacing:0.12em;border:3px solid #3a3150;box-shadow:4px 4px 0 rgba(0,0,0,0.35);cursor:pointer;text-transform:uppercase;'
+    const btnStyle = 'padding:14px 24px;font:800 16px/1 system-ui,sans-serif;letter-spacing:0.12em;border:3px solid #3a3150;cursor:pointer;text-transform:uppercase;'
     
     if (isConfirm) {
       const cancelBtn = document.createElement('button')
+      cancelBtn.className = 'px-s bv'
       cancelBtn.textContent = TG.cancel
       cancelBtn.style.cssText = btnStyle + 'background:#262048;color:#e9ddff;'
       cancelBtn.addEventListener('click', () => overlay.remove())
       // Active state styling simulation
-      cancelBtn.addEventListener('pointerdown', () => { cancelBtn.style.transform = 'translate(2px,2px)'; cancelBtn.style.boxShadow = '2px 2px 0 rgba(0,0,0,.35)' })
-      cancelBtn.addEventListener('pointerup', () => { cancelBtn.style.transform = 'none'; cancelBtn.style.boxShadow = '4px 4px 0 rgba(0,0,0,.35)' })
+      cancelBtn.addEventListener('pointerdown', () => { cancelBtn.style.transform = 'translate(2px,2px)' })
+      cancelBtn.addEventListener('pointerup', () => { cancelBtn.style.transform = 'none' })
       row.appendChild(cancelBtn)
     }
     
     const okBtn = document.createElement('button')
+    okBtn.className = 'px-s bv-a'
     okBtn.textContent = isConfirm ? TG.leave : TG.ok
     okBtn.style.cssText = btnStyle + 'background:#ffc07a;color:#241505;border-color:#d49b5f;'
     okBtn.addEventListener('click', () => {
       overlay.remove()
       onConfirm()
     })
-    okBtn.addEventListener('pointerdown', () => { okBtn.style.transform = 'translate(2px,2px)'; okBtn.style.boxShadow = '2px 2px 0 rgba(0,0,0,.35)' })
-    okBtn.addEventListener('pointerup', () => { okBtn.style.transform = 'none'; okBtn.style.boxShadow = '4px 4px 0 rgba(0,0,0,.35)' })
+    okBtn.addEventListener('pointerdown', () => { okBtn.style.transform = 'translate(2px,2px)' })
+    okBtn.addEventListener('pointerup', () => { okBtn.style.transform = 'none' })
     row.appendChild(okBtn)
     
     box.appendChild(row)
-    overlay.appendChild(box)
+    wrap.appendChild(box)
+    overlay.appendChild(wrap)
     document.body.appendChild(overlay)
   }
 
   // ── Leave button: bottom-right corner, next to mute ──
   const leaveBtn = document.createElement('button')
   leaveBtn.id = 'leave-btn'
+  leaveBtn.classList.add('px-s')
   leaveBtn.style.cssText =
     CHIP_STYLE +
     'position:fixed;bottom:calc(14px + env(safe-area-inset-bottom));right:calc(74px + env(safe-area-inset-right));z-index:30;'
