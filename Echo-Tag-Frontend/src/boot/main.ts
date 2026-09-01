@@ -104,7 +104,7 @@ menu.innerHTML = `
       gap: 0; width: min(92vw, 440px); }
     #bmap button { pointer-events: auto; cursor: pointer; border: 3px solid #3a3150;
       background: #262048; color: #e9ddff; width: 44px; flex-shrink: 0;
-      font: 800 18px/1 ui-monospace, monospace; }
+      font: 400 14px/1 var(--pf); }
     #bmap button:active { background: #3a3150; }
     #bmap-prev { border-right: 0; }
     #bmap-next { border-left: 0; }
@@ -114,8 +114,8 @@ menu.innerHTML = `
       aspect-ratio: 20/11; margin: 0 auto 8px; border: 2px solid #3a3150;
       background: #262038; }
     #bmap-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    #bmap-name { color: #ffc07a; font: 800 13px/1 ui-monospace, monospace;
-      letter-spacing: .12em; text-shadow: none; white-space: nowrap; overflow: hidden;
+    #bmap-name { color: #ffc07a; font: 400 9px/1.4 var(--pf);
+      letter-spacing: .04em; text-shadow: none; white-space: nowrap; overflow: hidden;
       text-overflow: ellipsis; }
     #bmap-pips { display: flex; gap: 5px; flex-shrink: 0; }
     #bmap-pips i { width: 9px; height: 9px; background: #3a3150; }
@@ -131,14 +131,14 @@ menu.innerHTML = `
     #info { position: absolute; top: calc(12px + env(safe-area-inset-top));
       right: calc(12px + env(safe-area-inset-right)); width: 44px; height: 44px;
       border: 3px solid #3a3150; background: #262048; color: #ffc07a;
-      font: 800 italic 20px/1 Georgia, serif; }
+      font: 400 15px/1 var(--pf); }
     #info:active { background: #3a3150; transform: translate(2px,2px); }
   </style>
   <button id="info" type="button" class="px-s">i</button>
   <h1 id="title">ECHO TAG</h1>
   <div id="bmap" class="px-s">
     <button id="bmap-prev" type="button" aria-label="previous map">&#9664;</button>
-    <div id="bmap-preview">
+    <div id="bmap-preview" class="crt">
       <canvas id="bmap-canvas"></canvas>
       <div id="bmap-foot">
         <span id="bmap-name">FOUNDRY</span>

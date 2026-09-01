@@ -127,10 +127,10 @@ export const showHowTo = (): void => {
       #howto-wrap { filter: drop-shadow(6px 6px 0 rgba(0,0,0,.45)); }
       #howto-head { display: flex; align-items: center; justify-content: space-between;
         gap: 10px; margin: 0 0 10px; }
-      #howto-head h2 { margin: 0; color: #ffc07a; font: 900 17px/1 system-ui, sans-serif;
-        letter-spacing: .18em; }
+      #howto-head h2 { margin: 0; color: #ffc07a; font: 400 13px/1.4 var(--pf);
+        letter-spacing: .05em; }
       #howto-x { cursor: pointer; border: 3px solid #3a3150; background: #262048;
-        color: #e9ddff; width: 36px; height: 36px; font: 800 15px/1 ui-monospace, monospace; }
+        color: #e9ddff; width: 36px; height: 36px; font: 400 12px/1 var(--pf); }
       #howto-x:active { background: #3a3150; }
       #howto ul { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
       #howto li { position: relative; padding-left: 22px;
@@ -139,10 +139,10 @@ export const showHowTo = (): void => {
         width: 11px; height: 11px; background: var(--c); }
       #howto-ok { display: block; margin: 0 auto; cursor: pointer; border: 0;
         padding: 12px 34px; color: #241505; background: #ffc07a;
-        font: 800 15px/1 system-ui, sans-serif; letter-spacing: .12em; }
+        font: 400 11px/1.4 var(--pf); letter-spacing: .04em; }
       #howto-ok:active { transform: translate(2px,2px); }
     </style>
-    <div id="howto-wrap"><div id="howto-panel" class="px" role="dialog" aria-modal="true" aria-label="${T.how}">
+    <div id="howto-wrap"><div id="howto-panel" class="px crt" role="dialog" aria-modal="true" aria-label="${T.how}">
       <div id="howto-head"><h2>${T.how}</h2><button id="howto-x" type="button" class="px-xs bv" aria-label="close">✕</button></div>
       <ul>${S.rules.map((r, i) => `<li style="--c:${BULLETS[i]}">${r}</li>`).join('')}</ul>
       <button id="howto-ok" type="button" class="px-s bv-a">${S.ok}</button>

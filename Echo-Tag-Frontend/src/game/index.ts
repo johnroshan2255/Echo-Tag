@@ -30,6 +30,7 @@ import {
 } from '@echo-tag/shared'
 import { createDriverState } from '@echo-tag/shared/ai'
 import { createAudioDirector } from './audio/director.ts'
+import { pauseMusic, playMusic, setMusicMuted } from '../platform/music.ts'
 import { WebGLRenderer } from 'pixi.js'
 import { applyCamera, createCamera, followCamera, resizeCamera, snapCamera } from './engine/camera.ts'
 import { createLayers, setLayersMap } from './engine/layers.ts'
@@ -151,7 +152,10 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     /* storage can be blocked (previews, private mode); default to sound on */
   }
   let breakMuted = false
-  const applyMute = (): void => audio.setMuted(userMuted || breakMuted)
+  const applyMute = (): void => {
+    audio.setMuted(userMuted || breakMuted)
+    setMusicMuted(userMuted || breakMuted)
+  }
   applyMute()
   const emoteState = createEmoteState()
 
@@ -311,8 +315,11 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   }
 
   // ── The round banner: each arena announces itself ──
+  // Only when a round is actually beginning: bots mode starts straight into play, but a
+  // hosted/joined room starts in the LOBBY, where the announcement belongs to
+  // onRoundSetup — a banner over the lobby card reads as a false start.
   const banner = createBanner()
-  banner.show(`${world.map.name} · ${MONSTER_NAMES[world.map.index]}`)
+  if (!net) banner.show(`${world.map.name} · ${MONSTER_NAMES[world.map.index]}`)
 
   // ── Hazard & portal feedback: the world's own events, one path for net and local ──
   const onHazardCaught = (slot: number): void => {
@@ -370,18 +377,18 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     const wrap = document.createElement('div')
     wrap.style.cssText = 'filter:drop-shadow(8px 8px 0 rgba(0,0,0,0.4));'
     const box = document.createElement('div')
-    box.className = 'px'
+    box.className = 'px crt'
     box.style.cssText = 'background:#262048;border:3px solid #3a3150;padding:32px;text-align:center;'
     
     const p = document.createElement('p')
-    p.style.cssText = 'font:700 18px/1.4 system-ui,sans-serif;color:#f6f1ff;margin:0 0 26px;max-width:280px;text-transform:uppercase;letter-spacing:0.05em;'
+    p.style.cssText = 'font:400 12px/1.9 var(--pf);color:#f6f1ff;margin:0 0 26px;max-width:300px;text-transform:uppercase;letter-spacing:0.03em;'
     p.textContent = msg
     box.appendChild(p)
     
     const row = document.createElement('div')
     row.style.cssText = 'display:flex;gap:16px;justify-content:center;'
     
-    const btnStyle = 'padding:14px 24px;font:800 16px/1 system-ui,sans-serif;letter-spacing:0.12em;border:3px solid #3a3150;cursor:pointer;text-transform:uppercase;'
+    const btnStyle = 'padding:14px 20px;font:400 11px/1.4 var(--pf);letter-spacing:0.03em;border:3px solid #3a3150;cursor:pointer;text-transform:uppercase;'
     
     if (isConfirm) {
       const cancelBtn = document.createElement('button')
@@ -689,6 +696,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   }
 
   // ── Frame loop ──
+  let musicPhase = -1
   let raf = 0
   let last = 0
   let frames = 0
@@ -752,6 +760,14 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     renderTerror(layers.terror, terror, now, viewW, viewH)
 
     audio.update(world, mySlot, dt)
+
+    // Menu/lobby music follows the phase: the lobby and the results board keep the tune,
+    // the round itself belongs to the game's own soundscape.
+    if (world.phase !== musicPhase) {
+      musicPhase = world.phase
+      if (musicPhase === RoundPhase.Lobby || musicPhase === RoundPhase.Leaderboard) playMusic()
+      else pauseMusic()
+    }
 
     renderAmbience(layers.ambience, now, cam.cx, cam.cy)
     if (layers.ambience.flockJustStarted) audio.flutter()

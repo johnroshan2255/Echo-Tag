@@ -27,7 +27,7 @@ export const createLobbyUi = (
   const root = document.createElement('div')
   root.id = 'lobby'
   root.innerHTML = `
-    <div id="lobby-shadow"><div id="lobby-card" class="px">
+    <div id="lobby-shadow"><div id="lobby-card" class="px crt">
       <h2 id="lobby-title">${TG.finding}</h2>
       <p id="lobby-code" hidden>${TG.roomCode} <b></b><span>${TG.shareIt}</span></p>
       <button id="lobby-invite" type="button" class="px-s bv" hidden>${TG.copyLink}</button>
@@ -67,24 +67,24 @@ export const createLobbyUi = (
     #lobby-shadow { margin: auto; filter: drop-shadow(8px 8px 0 rgba(0,0,0,.35)); }
     #lobby-card { background: #1d1830; border: 4px solid #3a3150; padding: 26px 34px;
       min-width: 300px; text-align: center; }
-    #lobby-title { color: #f6f1ff; font-size: 18px; letter-spacing: .14em; margin: 0 0 14px; }
+    #lobby-title { color: #f6f1ff; font: 400 13px/1.5 var(--pf); letter-spacing: .05em; margin: 0 0 14px; }
     #lobby-code { color: #b3a8c9; font-size: 12px; letter-spacing: .1em; margin: 0 0 14px; }
-    #lobby-code b { display: block; color: #ffc07a; font-size: 34px; letter-spacing: .3em;
-      margin: 6px 0 2px; }
+    #lobby-code b { display: block; color: #ffc07a; font: 400 24px/1.3 var(--pf);
+      letter-spacing: .14em; margin: 8px 0 4px; }
     #lobby-code span { display: block; font-size: 11px; opacity: .8; }
     /* The invite button: the acquisition loop — one tap turns a room into a shareable
        link. Styled like the +/- chips, sized for thumbs. */
     #lobby-invite { pointer-events: auto; cursor: pointer; margin: 0 0 14px; min-height: 40px;
       padding: 10px 18px; border: 3px solid #3a3150; background: #262048; color: #e9ddff;
-      font: 800 12px/1 ui-monospace, monospace; letter-spacing: .12em; }
+      font: 400 9px/1.4 var(--pf); letter-spacing: .04em; }
     #lobby-invite:active { background: #3a3150; }
     #lobby-invite.copied { border-color: #7ccb66; color: #a4dd85; }
     #lobby-roster { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
       margin: 0 0 16px; max-width: 320px; }
     .lobby-dot { width: 22px; height: 22px; border: 3px solid rgba(0,0,0,.4); }
     .lobby-dot.bot { opacity: .38; }
-    #lobby-start { pointer-events: auto; cursor: pointer; border: 0; padding: 14px 34px;
-      font: 800 16px/1 system-ui, sans-serif; letter-spacing: .12em; color: #241505;
+    #lobby-start { pointer-events: auto; cursor: pointer; border: 0; padding: 14px 30px;
+      font: 400 12px/1.4 var(--pf); letter-spacing: .04em; color: #241505;
       background: #ffc07a; }
     #lobby-start:active { transform: translate(2px, 2px); }
     #lobby-start:disabled { background: #574a3a; color: #2e2517; cursor: default;
@@ -95,12 +95,12 @@ export const createLobbyUi = (
     #lobby-bots[hidden], #lobby-mins[hidden], #lobby-map[hidden] { display: none; }
     #lobby-bots button, #lobby-mins button, #lobby-map button { cursor: pointer; width: 44px; min-height: 44px;
       border: 3px solid #3a3150; background: #262048; color: #e9ddff;
-      font: 800 18px/1 ui-monospace, monospace; }
+      font: 400 13px/1 var(--pf); }
     #lobby-bots button:active, #lobby-mins button:active, #lobby-map button:active { background: #3a3150; }
     #bots-label, #mins-label, #map-preview { display: flex; align-items: center; justify-content: center;
       min-width: 96px; padding: 10px 16px; color: #ffc07a;
-      border: 3px solid #3a3150; border-left: 0; border-right: 0; font: 800 13px/1 ui-monospace, monospace;
-      letter-spacing: .12em; }
+      border: 3px solid #3a3150; border-left: 0; border-right: 0; font: 400 9px/1.5 var(--pf);
+      letter-spacing: .04em; }
     /* The map row grows into a proper preview: a true miniature of the whole arena
        (20:11), so it takes the width the card can give it, capped by height on
        landscape phones. Hard corners — same brick language as everything else. */
@@ -120,16 +120,16 @@ export const createLobbyUi = (
     .lobby-row { display: flex; align-items: center; gap: 10px; color: #f6f1ff;
       font-size: 14px; justify-content: space-between; }
     .lobby-row .who { display: flex; align-items: center; gap: 10px; }
-    .lobby-tag { font: 800 10px/1 ui-monospace, monospace; letter-spacing: .12em;
+    .lobby-tag { font: 400 8px/1.4 var(--pf); letter-spacing: .04em;
       padding: 3px 6px; border: 2px solid rgba(0,0,0,.4); }
     .lobby-tag.win { background: #ffc07a; color: #241505; }
     .lobby-tag.lose { background: #574a3a; color: #f6f1ff; }
     /* Landscape phones: the card must fit ~390px of height with both host rows showing. */
     @media (max-height: 520px) {
       #lobby-card { padding: 12px 22px; }
-      #lobby-title { font-size: 15px; margin: 0 0 8px; }
+      #lobby-title { font-size: 11px; margin: 0 0 8px; }
       #lobby-code { margin: 0 0 8px; }
-      #lobby-code b { font-size: 22px; margin: 2px 0 0; }
+      #lobby-code b { font-size: 16px; margin: 2px 0 0; }
       #lobby-count { margin: 0 0 6px; }
       #lobby-roster { margin: 0 0 10px; }
       #lobby-bots, #lobby-mins, #lobby-map { margin: 0 0 8px; }

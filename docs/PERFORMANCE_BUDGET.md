@@ -20,7 +20,7 @@ The player can press Play at ~120ms. Whether the engine arrived yet is invisible
 
 ### The eight rules that keep it there
 
-1. **Zero fetched assets on the load path.** No PNGs, no sprite sheets, no webfonts. The square texture and the glow gradient are drawn into an `OffscreenCanvas` at boot; type is `system-ui`. Nothing in `public/` but a favicon. The one exception is the soundscape: four MP3s (~1.06MB, their own `media` budget of 1200KB in the size gate) fetched by the audio engine *after* Play — they never gate interactivity, and MP3s are already compressed so they skip brotli. They ship at 256kbps; re-encoding to ~112kbps would roughly halve them if the media budget ever tightens.
+1. **Zero fetched assets on the load path.** No PNGs, no sprite sheets, no webfonts. The square texture and the glow gradient are drawn into an `OffscreenCanvas` at boot; type is `system-ui`. Nothing in `public/` but a favicon. The exceptions are the soundscape (five MP3s incl. the CC0 menu/lobby music loop, their own `media` budget of 1800KB in the size gate) and ~11KB of self-hosted Press Start 2P subsets for UI chrome fetched by the audio engine *after* Play — they never gate interactivity, and MP3s are already compressed so they skip brotli. They ship at 256kbps; re-encoding to ~112kbps would roughly halve them if the media budget ever tightens.
    *This resolves a contradiction in the tech doc: §1 lists Aseprite sprite sheets and `AnimatedSprite`, while §3–4 specify code-generated squares with procedural animation. We go all-in on procedural — sprite sheets would reintroduce the asset pipeline the square approach exists to eliminate.*
 2. **Two-stage boot.** `src/boot/` may not import PixiJS, React, or Colyseus. Enforced by the size gate.
 3. **Preact via alias** instead of React DOM: same JSX, same hooks, ~40KB brotli cheaper. Reverting is a two-line change in `vite.config.ts` + `tsconfig.json` if a React-only library ever becomes necessary.
@@ -41,7 +41,7 @@ The player can press Play at ~120ms. Whether the engine arrived yet is invisible
 | `game` | 40 KB | shared sim + renderers + animation + input |
 | `engine` | 160 KB | PixiJS v8, WebGL path only |
 | **code** | **260 KB** | all script + markup |
-| `media` | 1200 KB | MP3 soundscape, fetched lazily after Play |
+| `media` | 1800 KB | MP3 soundscape + CC0 menu/lobby music loop + the self-hosted pixel-font subsets, all fetched lazily |
 | **Everything** | **~1.3 MB** | vs Poki's 8 MB ceiling |
 
 ## Runtime budget (per frame, 16.6ms at 60fps)

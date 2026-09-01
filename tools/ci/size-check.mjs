@@ -23,7 +23,7 @@ import { join, relative } from 'node:path'
 const DIST = 'Echo-Tag-Frontend/dist'
 
 /** KB, brotli. See docs/PERFORMANCE_BUDGET.md. */
-const BUDGETS = { boot: 16, engine: 160, code: 260, media: 1200 }
+const BUDGETS = { boot: 16, engine: 160, code: 260, media: 1800 } // media raised for the CC0 menu/lobby music loop (2026-09)
 /** Poki's hard cap on the initial download, KB. */
 const POKI_CAP = 8 * 1024
 
@@ -34,7 +34,7 @@ const isEngine = (name) => /(^|\/)engine\.[^/]*\.js$/.test(name)
 /** Share/install assets: fetched by link scrapers and home-screen installs, never by
  * gameplay — they ride the zip but are not part of what a player downloads to play. */
 const isShare = (name) => /^(og\.png|icon-\d+\.png|manifest\.webmanifest)$/.test(name)
-const isMedia = (name) => !isShare(name) && /\.(mp3|ogg|wav|m4a|png|jpg|webp|avif)$/.test(name)
+const isMedia = (name) => !isShare(name) && /\.(mp3|ogg|wav|m4a|png|jpg|webp|avif|woff2?)$/.test(name)
 
 const walk = async (dir) => {
   const out = []
