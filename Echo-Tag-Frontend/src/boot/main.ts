@@ -68,17 +68,34 @@ addEventListener('resize', refitSettled, { passive: true })
 addEventListener('orientationchange', refitSettled, { passive: true })
 globalThis.visualViewport?.addEventListener('resize', refitSettled, { passive: true })
 
-// ── Fullscreen ───────────────────────────────────────────────────────────────
-// Forcefully request fullscreen on the first tap anywhere to hide browser headers —
-// except under Poki, whose page provides its own fullscreen control and whose QA flags
-// games that hijack fullscreen from a menu tap.
-const underPoki = (): boolean => 'PokiSDK' in globalThis
-addEventListener('pointerdown', () => {
-  if (underPoki()) return
+// ── Fullscreen, held for the whole session ───────────────────────────────────
+// The browser header goes away at the FIRST tap or keypress and stays away: every later
+// gesture re-enters fullscreen if the player ever dropped out (Esc, alt-tab). A request
+// on page load is impossible — every browser hard-gates the Fullscreen API behind a user
+// gesture — so the first interaction is the earliest legal moment.
+// Two exemptions: Poki (its page has its own fullscreen control and its QA flags games
+// that hijack fullscreen), and the Escape key itself (re-entering on the very gesture
+// that exits would trap the player in a fight with the browser).
+// "Under Poki" means actually embedded in their page (the SDK script alone also loads on
+// localhost and self-hosted copies of the Poki build — presence isn't context). Poki runs
+// games in an iframe; a top-level window is never their player page.
+const underPoki = (): boolean => 'PokiSDK' in globalThis && globalThis.self !== globalThis.top
+let lastFsTry = 0
+const holdFullscreen = (e: Event): void => {
+  if (underPoki() || document.fullscreenElement) return
+  if ((e as KeyboardEvent).key === 'Escape') return
+  const now = Date.now()
+  if (now - lastFsTry < 700) return // one polite retry per gesture burst
+  lastFsTry = now
+  const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }
   try {
-    void document.documentElement.requestFullscreen?.().catch(() => {})
-  } catch {}
-}, { once: true })
+    void (el.requestFullscreen ?? el.webkitRequestFullscreen)?.call(el)?.catch?.(() => {})
+  } catch {
+    /* iPhones have no Fullscreen API at all — the PWA meta tags are the fallback there */
+  }
+}
+addEventListener('pointerdown', holdFullscreen)
+addEventListener('keydown', holdFullscreen)
 
 // ── Start downloading the game immediately ───────────────────────────────────
 // Kicked off before the player can possibly have pressed Play, so the engine chunk
@@ -217,14 +234,8 @@ let starting = false
 const start = async (mode: GameMode): Promise<void> => {
   if (starting) return
   starting = true
-
-  if (!underPoki()) {
-    try {
-      void document.documentElement.requestFullscreen?.().catch(() => {})
-    } catch {
-      /* ignore if browser rejects or doesn't support it */
-    }
-  }
+  // Fullscreen is already held by the session-wide gesture listener above — the tap or
+  // Enter that got us here re-entered it if the player had dropped out.
 
   play.textContent = T.loading
   menu.classList.add('busy')
