@@ -545,8 +545,11 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       })
     })
     // Server-driven rounds: the phase transition arrives via snapshot; watch it for the
-    // gameplayStop/ad-break moment.
-    let prevPhase = world.phase
+    // gameplayStop/ad-break moment — and for the arena banner, which belongs to the
+    // moment a round actually begins. (onRoundSetup is the wrong trigger: it also fires
+    // on joining a lobby and on every map flip the host makes there.)
+    // Starts at Lobby so a mid-round quick-join still reads as "entering the round".
+    let prevPhase: number = RoundPhase.Lobby
     const watchPhase = setInterval(() => {
       if (world.phase !== prevPhase) {
         if (prevPhase === RoundPhase.Playing) {
@@ -561,6 +564,9 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
             },
           )
         }
+        const intoRound = world.phase === RoundPhase.Countdown || world.phase === RoundPhase.Playing
+        const fromRest = prevPhase === RoundPhase.Lobby || prevPhase === RoundPhase.Leaderboard
+        if (intoRound && fromRest) banner.show(`${world.map.name} · ${MONSTER_NAMES[world.map.index]}`)
         prevPhase = world.phase
       }
     }, 300)
@@ -569,7 +575,6 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       mySlot = net.mySlot
       setLayersMap(layers, world.map)
       snapCamera(cam, world.x[mySlot]!, world.y[mySlot]!)
-      banner.show(`${world.map.name} · ${MONSTER_NAMES[world.map.index]}`)
     })
   } else {
     // Offline gets the same results board as multiplayer, driven from the local world.
@@ -761,12 +766,15 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
 
     audio.update(world, mySlot, dt)
 
-    // Menu/lobby music follows the phase: the lobby and the results board keep the tune,
-    // the round itself belongs to the game's own soundscape.
+    // Menu/lobby music and the play-only HUD follow the phase: the lobby and the results
+    // board keep the tune and hide the tool belt — it holds nothing there; the round
+    // itself belongs to the game's own soundscape and shows the tools.
     if (world.phase !== musicPhase) {
       musicPhase = world.phase
-      if (musicPhase === RoundPhase.Lobby || musicPhase === RoundPhase.Leaderboard) playMusic()
+      const atRest = musicPhase === RoundPhase.Lobby || musicPhase === RoundPhase.Leaderboard
+      if (atRest) playMusic()
       else pauseMusic()
+      toolbar.style.display = atRest ? 'none' : 'flex'
     }
 
     renderAmbience(layers.ambience, now, cam.cx, cam.cy)
