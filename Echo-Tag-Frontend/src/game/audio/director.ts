@@ -1,6 +1,8 @@
 import {
   MAX_DOORS,
   MAX_PLAYERS,
+  Monster,
+  MONSTER_BY_MAP,
   NO_SLOT,
   doorCenterX,
   doorCenterY,
@@ -9,7 +11,7 @@ import {
   type World,
 } from '@echo-tag/shared'
 import { createAudioEngine, distanceGain, panFor, setMuffled, setMuted, type AudioEngine } from './engine.ts'
-import { batFlutter, doorCreak, doorThud, wardrobeOpen, wardrobeClose, footstep, ghostFootstep, heartThump, nightGroan, startAmbientBed, tagSting } from './voices.ts'
+import { batFlutter, doorCreak, doorThud, wardrobeOpen, wardrobeClose, footstep, ghostFootstep, heartThump, hiveSignal, nightGroan, startAmbientBed, startHiveBed, tagSting, ufoPass, type AmbientBed } from './voices.ts'
 
 /**
  * The audio director: decides each frame what the world sounds like from where you stand.
@@ -33,7 +35,10 @@ export interface AudioDirector {
   engine: AudioEngine
   update(world: World, localSlot: number, dtMs: number): void
   onTag(world: World, localSlot: number, from: number, to: number): void
+  /** The ambient flock/squadron just launched: bat wings, or the hive's engine hum. */
   flutter(): void
+  /** A portal was used: the warp accent for the current world. */
+  warp(): void
   /** A direct full-presence sting — the nest spider's catch, and anything else personal. */
   sting(gain: number): void
   setMuted(muted: boolean): void
@@ -42,7 +47,11 @@ export interface AudioDirector {
 
 export const createAudioDirector = (): AudioDirector => {
   const engine = createAudioEngine()
-  startAmbientBed(engine)
+  // The bed is per-world (the hive gets music, everywhere else gets weather), so it starts
+  // lazily on the first update, once the map is known.
+  let bed: AmbientBed | null = null
+  let bedIsHive = false
+  let hive = false
 
   const prevDoorOpen = new Float32Array(MAX_DOORS)
   const prevHiddenIn = new Int8Array(MAX_PLAYERS).fill(NO_SLOT)
@@ -80,6 +89,14 @@ export const createAudioDirector = (): AudioDirector => {
       const lx = world.x[localSlot]!
       const ly = world.y[localSlot]!
 
+      // ── The world's bed: night weather everywhere, alien music on the hive ──
+      hive = MONSTER_BY_MAP[world.map.index] === Monster.Alien
+      if (bed === null || bedIsHive !== hive) {
+        bed?.stop()
+        bed = hive ? startHiveBed(engine) : startAmbientBed(engine)
+        bedIsHive = hive
+      }
+
       // ── Doors ──
       const doorCount = world.map.doors.length / 3
       for (let d = 0; d < doorCount; d++) {
@@ -98,10 +115,12 @@ export const createAudioDirector = (): AudioDirector => {
         prevDoorOpen[d] = open
       }
 
-      // ── The house settles ──
+      // ── The house settles (or the hive signals) ──
       groanInMs -= dtMs
       if (groanInMs <= 0) {
-        nightGroan(engine, Math.random() * 1.4 - 0.7)
+        const pan = Math.random() * 1.4 - 0.7
+        if (hive) hiveSignal(engine, pan)
+        else nightGroan(engine, pan)
         groanInMs = 25_000 + Math.random() * 30_000
       }
 
@@ -253,7 +272,15 @@ export const createAudioDirector = (): AudioDirector => {
     },
 
     flutter(): void {
-      batFlutter(engine, Math.random() * 1.6 - 0.8)
+      const pan = Math.random() * 1.6 - 0.8
+      if (hive) ufoPass(engine, pan)
+      else batFlutter(engine, pan)
+    },
+
+    warp(): void {
+      // The hive's portals chirp like its signals; elsewhere the warp is a bat flurry.
+      if (hive) hiveSignal(engine, 0)
+      else batFlutter(engine, 0)
     },
 
     sting(gain: number): void {
@@ -268,6 +295,7 @@ export const createAudioDirector = (): AudioDirector => {
 
     destroy(): void {
       document.removeEventListener('visibilitychange', onVisibility)
+      bed?.stop()
       for (const pa of playerAudio) {
         if (pa.src) {
           try { pa.src.stop(); pa.src.disconnect() } catch {}

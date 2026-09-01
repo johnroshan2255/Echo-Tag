@@ -93,6 +93,18 @@ const clear = (w: Uint8Array, x0: number, y0: number, x1 = x0, y1 = y0): void =>
 const hwall = (w: Uint8Array, y: number, x0: number, x1: number): void => rect(w, x0, y, x1, y)
 const vwall = (w: Uint8Array, x: number, y0: number, y1: number): void => rect(w, x, y0, x, y1)
 
+/**
+ * A stepped-oval blob of solid wall: the end rows are inset so the silhouette reads as a
+ * grown pod rather than a built panel. The hive's architecture, in one shape.
+ */
+const lens = (w: Uint8Array, x: number, y: number, wide: number, tall: number): void => {
+  const inset = Math.max(1, Math.floor(wide / 3))
+  for (let r = 0; r < tall; r++) {
+    const cap = r === 0 || r === tall - 1
+    rect(w, x + (cap ? inset : 0), y + r, x + wide - 1 - (cap ? inset : 0), y + r)
+  }
+}
+
 /** Solid furniture: blocks movement like a wall, renders as wood. */
 const furn = (w: Uint8Array, x0: number, y0: number, x1 = x0, y1 = y0): void => {
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) w[y * TX + x] = TILE_FURNITURE
@@ -320,49 +332,48 @@ const serpentine = (): GameMap => {
   // No nests: the cave's monster IS the spider.
 }
 
-// ── Map 3: WARRENS — small chambers, many doorways; the ambush map ───────────
+// ── Map 3: WARRENS — an organic field of grown pods; the alien map ───────────
 const warrens = (): GameMap => {
   const w = blank()
-  // A lattice of walls with doors knocked through at varying offsets, so no two chambers
-  // connect the same way and sightlines stay short.
-  for (const x of [8, 16, 24, 32]) vwall(w, x, 1, 20)
-  for (const y of [6, 11, 16]) hwall(w, y, 1, 38)
-  // Doorways, two tiles each.
-  clear(w, 8, 3, 8, 4); clear(w, 16, 2, 16, 3); clear(w, 24, 3, 24, 4); clear(w, 32, 2, 32, 3)
-  clear(w, 8, 8, 8, 9); clear(w, 16, 8, 16, 9); clear(w, 24, 8, 24, 9); clear(w, 32, 8, 32, 9)
-  clear(w, 8, 13, 8, 14); clear(w, 16, 12, 16, 13); clear(w, 24, 13, 24, 14); clear(w, 32, 12, 32, 13)
-  clear(w, 8, 18, 8, 19); clear(w, 16, 17, 16, 18); clear(w, 24, 18, 24, 19); clear(w, 32, 17, 32, 18)
-  clear(w, 3, 6, 4, 6); clear(w, 11, 6, 12, 6); clear(w, 19, 6, 20, 6); clear(w, 27, 6, 28, 6); clear(w, 35, 6, 36, 6)
-  clear(w, 3, 11, 4, 11); clear(w, 11, 11, 12, 11); clear(w, 19, 11, 20, 11); clear(w, 27, 11, 28, 11); clear(w, 35, 11, 36, 11)
-  clear(w, 3, 16, 4, 16); clear(w, 11, 16, 12, 16); clear(w, 19, 16, 20, 16); clear(w, 27, 16, 28, 16); clear(w, 35, 16, 36, 16)
-  // The indoor map: beds, tables and chests scattered through the chambers.
-  furn(w, 3, 3, 4, 3); furn(w, 35, 4); furn(w, 12, 2, 13, 2)
-  furn(w, 6, 13); furn(w, 28, 9, 29, 9); furn(w, 18, 13, 18, 14); furn(w, 34, 18)
+  // No lattice, no right angles as far as the eye can wander: the hive is an open cavern
+  // studded with lens-shaped pods of grown wall, so every sightline curves around a bulge
+  // instead of running down a corridor.
+  lens(w, 5, 3, 7, 4); lens(w, 17, 3, 5, 3); lens(w, 27, 4, 7, 4)
+  lens(w, 3, 10, 5, 3); lens(w, 13, 8, 4, 3); lens(w, 19, 10, 7, 4); lens(w, 31, 10, 5, 3)
+  lens(w, 6, 15, 7, 4); lens(w, 16, 17, 5, 3); lens(w, 26, 15, 7, 4)
+  // Four of the big pods are hollowed: a two-tile duct bored straight through, each with a
+  // membrane door — the ambush routes, and the only place a door belongs in a grown world.
+  clear(w, 30, 4, 31, 7)
+  clear(w, 22, 10, 23, 13)
+  clear(w, 9, 15, 10, 18)
+  clear(w, 29, 15, 30, 18)
+  // Small budding growths along the rim: texture, and half-cover on the open runs.
+  furn(w, 30, 1, 31, 1); furn(w, 24, 20, 25, 20); furn(w, 1, 6); furn(w, 38, 16)
   return finish(3, 'Warrens', w, [
-    3, 2, 36, 2, 3, 19, 36, 19,
-    12, 4, 28, 4, 12, 18, 28, 18,
-    20, 9, 20, 13, 4, 9, 36, 13,
+    2, 2, 20, 1, 37, 2, 2, 19, 37, 19, 20, 20,
+    13, 6, 26, 9, 2, 8, 37, 8, 13, 19, 26, 2,
   ], [
-    // Doors on six of the chamber doorways — the map where you live by your ears.
-    8, 3, 1, 24, 3, 1, 16, 8, 1, 32, 12, 1, 11, 11, 0, 27, 6, 0,
+    // Membrane doors seal the four pod ducts — take the fast way through and it announces you.
+    30, 5, 0, 22, 11, 0, 9, 16, 0, 29, 16, 0,
   ], [
-    Decor.Rug, 10, 8, Decor.Rug, 25, 13, Decor.Rug, 18, 2,
-    Decor.Lamp, 9, 2, Decor.Lamp, 30, 3, Decor.Lamp, 5, 17, Decor.Lamp, 33, 14,
-    Decor.Lamp, 21, 10,
-    Decor.Plant, 1, 1, Decor.Plant, 38, 20, Decor.Plant, 17, 12, Decor.Plant, 25, 1,
-    Decor.Window, 8, 6, Decor.Window, 24, 6, Decor.Window, 16, 11, Decor.Window, 32, 16,
-    Decor.Window, 0, 9, Decor.Window, 39, 13,
+    Decor.Rug, 12, 11, Decor.Rug, 23, 5, Decor.Rug, 31, 13,
+    Decor.Lamp, 3, 3, Decor.Lamp, 36, 3, Decor.Lamp, 3, 18, Decor.Lamp, 36, 18, Decor.Lamp, 14, 14,
+    Decor.Plant, 1, 1, Decor.Plant, 38, 1, Decor.Plant, 1, 20, Decor.Plant, 38, 20,
+    Decor.Plant, 24, 8, Decor.Plant, 15, 20,
+    Decor.Window, 0, 7, Decor.Window, 39, 12, Decor.Window, 12, 0, Decor.Window, 27, 21,
+    Decor.Window, 7, 4, Decor.Window, 28, 5, Decor.Window, 7, 16, Decor.Window, 27, 17,
+    Decor.Window, 20, 18,
   ], [
-    // The house map: a wardrobe in most chambers — this is where hiding lives.
-    2, 4, 37, 3, 13, 9, 29, 14, 6, 18, 34, 8,
+    // Cocoon pods around the rim — where hiding lives on this map.
+    5, 2, 34, 2, 1, 10, 38, 10, 5, 19, 34, 19,
   ], [
-    // A two-way portal between opposite corner chambers: the hive's transit tubes.
-    5, 4, 35, 18,
-    35, 18, 5, 4,
+    // A two-way portal between opposite reaches: the hive's transit tubes.
+    14, 2, 25, 19,
+    25, 19, 14, 2,
   ], [
-    // Abduction UFOs hover over the central chambers: the hive's grabbers. Same lair
+    // Abduction UFOs hover over the open middle: the hive's grabbers. Same lair
     // mechanics as the nest spiders, drawn as saucers with tractor beams.
-    20, 4, 20, 18,
+    20, 7, 20, 14,
   ])
 }
 

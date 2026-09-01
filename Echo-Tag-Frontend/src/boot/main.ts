@@ -1,4 +1,5 @@
-import { drawPreview } from './preview.ts'
+import { animatePreview, drawPreview } from './preview.ts'
+import { armMenuAudio, menuThunder, stopMenuAudio } from './menuAudio.ts'
 import { pokiInit, pokiLoadingFinished } from '../platform/poki.ts'
 import { T } from '../platform/i18n.ts'
 import { MAP_COUNT, MAPS, MONSTER_NAMES } from '@echo-tag/shared'
@@ -43,7 +44,9 @@ const fit = (canvas: HTMLCanvasElement): void => {
 
 fit(stage)
 fit(preview)
-drawPreview(preview)
+drawPreview(preview) // instant static first paint; the loop takes over from here
+const stopPreviewAnim = animatePreview(preview, menuThunder)
+armMenuAudio() // the terror bed starts on the first gesture (autoplay gate)
 
 let previewLive = true
 const refit = (): void => {
@@ -66,8 +69,12 @@ addEventListener('orientationchange', refitSettled, { passive: true })
 globalThis.visualViewport?.addEventListener('resize', refitSettled, { passive: true })
 
 // ── Fullscreen ───────────────────────────────────────────────────────────────
-// Forcefully request fullscreen on the first tap anywhere to hide browser headers.
+// Forcefully request fullscreen on the first tap anywhere to hide browser headers —
+// except under Poki, whose page provides its own fullscreen control and whose QA flags
+// games that hijack fullscreen from a menu tap.
+const underPoki = (): boolean => 'PokiSDK' in globalThis
 addEventListener('pointerdown', () => {
+  if (underPoki()) return
   try {
     void document.documentElement.requestFullscreen?.().catch(() => {})
   } catch {}
@@ -119,7 +126,16 @@ menu.innerHTML = `
       #bmap { margin: 0 0 8px; width: min(92vw, calc(24vh * 20 / 11 + 114px)); }
       #bmap-canvas { width: min(100%, calc(24vh * 20 / 11)); }
     }
+    /* The ⓘ chip: how-to-play, pinned to the menu's top-right corner. The rules text
+       itself is a lazy chunk (boot budget stays clean); this is just the door. */
+    #info { position: absolute; top: calc(12px + env(safe-area-inset-top));
+      right: calc(12px + env(safe-area-inset-right)); width: 44px; height: 44px;
+      border: 3px solid #3a3150; background: #262048; color: #ffc07a;
+      font: 800 italic 20px/1 Georgia, serif; box-shadow: 4px 4px 0 rgba(0,0,0,.35); }
+    #info:active { background: #3a3150; transform: translate(2px,2px);
+      box-shadow: 2px 2px 0 rgba(0,0,0,.35); }
   </style>
+  <button id="info" type="button">i</button>
   <h1 id="title">ECHO TAG</h1>
   <div id="bmap">
     <button id="bmap-prev" type="button" aria-label="previous map">&#9664;</button>
@@ -168,6 +184,14 @@ host.textContent = T.host
 codeIn.placeholder = T.codePlaceholder
 status.textContent = T.tagline
 
+// The ⓘ button: HOW TO PLAY, fetched on first tap so the rules never weigh on boot.
+const info = menu.querySelector('#info') as HTMLButtonElement
+info.setAttribute('aria-label', T.how)
+info.title = T.how
+info.addEventListener('click', () => {
+  void import('./howto.ts').then((m) => m.showHowTo()).catch(() => {})
+})
+
 let bmapIndex = 0
 const updateBmap = () => {
   const map = MAPS[bmapIndex]
@@ -194,11 +218,13 @@ let starting = false
 const start = async (mode: GameMode): Promise<void> => {
   if (starting) return
   starting = true
-  
-  try {
-    void document.documentElement.requestFullscreen?.().catch(() => {})
-  } catch {
-    /* ignore if browser rejects or doesn't support it */
+
+  if (!underPoki()) {
+    try {
+      void document.documentElement.requestFullscreen?.().catch(() => {})
+    } catch {
+      /* ignore if browser rejects or doesn't support it */
+    }
   }
 
   play.textContent = T.loading
@@ -210,9 +236,12 @@ const start = async (mode: GameMode): Promise<void> => {
     await mod.startGame(stage, mode)
 
     menu.remove()
+    document.getElementById('howto')?.remove() // the rules sheet must not outlive the menu
     removeEventListener('keydown', onMenuKey) // the menu is gone; drop its closure too
     // Only now is there something behind the preview worth showing.
     previewLive = false
+    stopPreviewAnim()
+    stopMenuAudio() // the game's own audio engine owns the ears from here
     preview.classList.add('gone')
     setTimeout(() => preview.remove(), 400)
   } catch (err) {
@@ -266,7 +295,8 @@ joinForm.addEventListener('submit', (e) => {
 // Enter/Space anywhere starts a bots round — the zero-friction path. Removed on a
 // successful start, so the game doesn't keep the dead menu's closure alive.
 const onMenuKey = (e: KeyboardEvent): void => {
-  if (starting || document.activeElement === codeIn) return
+  // The how-to overlay owns the keyboard while open (Enter/Space work its buttons).
+  if (starting || document.activeElement === codeIn || document.getElementById('howto')) return
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
     void start({ kind: 'bots', mapIndex: bmapIndex })

@@ -22,6 +22,7 @@ const EN = {
   errServer: 'Could not reach the game server — try PLAY for a bots round.',
   errCodeLen: 'Room codes are five letters.',
   rejoining: 'Rejoining room',
+  how: 'HOW TO PLAY',
 }
 
 export type BootStrings = typeof EN
@@ -43,6 +44,7 @@ const TABLES: Record<string, Partial<BootStrings>> = {
     errServer: 'Servidor fora do ar — toque em JOGAR para uma partida com bots.',
     errCodeLen: 'Os códigos têm cinco letras.',
     rejoining: 'Voltando para a sala',
+    how: 'COMO JOGAR',
   },
   es: {
     play: 'JUGAR',
@@ -59,6 +61,7 @@ const TABLES: Record<string, Partial<BootStrings>> = {
     errServer: 'No hay conexión con el servidor — prueba JUGAR con bots.',
     errCodeLen: 'Los códigos tienen cinco letras.',
     rejoining: 'Volviendo a la sala',
+    how: 'CÓMO JUGAR',
   },
   tr: {
     play: 'OYNA',
@@ -75,6 +78,7 @@ const TABLES: Record<string, Partial<BootStrings>> = {
     errServer: 'Sunucuya ulaşılamadı — botlarla oynamak için OYNA.',
     errCodeLen: 'Oda kodları beş harflidir.',
     rejoining: 'Odaya dönülüyor',
+    how: 'NASIL OYNANIR',
   },
   id: {
     play: 'MAIN',
@@ -91,6 +95,7 @@ const TABLES: Record<string, Partial<BootStrings>> = {
     errServer: 'Server tidak terjangkau — tekan MAIN untuk ronde bot.',
     errCodeLen: 'Kode room terdiri dari lima huruf.',
     rejoining: 'Kembali ke room',
+    how: 'CARA MAIN',
   },
   ru: {
     play: 'ИГРАТЬ',
@@ -107,6 +112,7 @@ const TABLES: Record<string, Partial<BootStrings>> = {
     errServer: 'Сервер недоступен — нажми ИГРАТЬ для раунда с ботами.',
     errCodeLen: 'Код комнаты — пять букв.',
     rejoining: 'Возвращение в комнату',
+    how: 'КАК ИГРАТЬ',
   },
   de: {
     play: 'SPIELEN',
@@ -123,6 +129,7 @@ const TABLES: Record<string, Partial<BootStrings>> = {
     errServer: 'Server nicht erreichbar — SPIELEN startet eine Bot-Runde.',
     errCodeLen: 'Raumcodes haben fünf Buchstaben.',
     rejoining: 'Zurück in Raum',
+    how: "SO GEHT'S",
   },
   fr: {
     play: 'JOUER',
@@ -139,6 +146,7 @@ const TABLES: Record<string, Partial<BootStrings>> = {
     errServer: 'Serveur injoignable — JOUER lance une partie avec des bots.',
     errCodeLen: 'Les codes font cinq lettres.',
     rejoining: 'Retour dans le salon',
+    how: 'COMMENT JOUER',
   },
 }
 

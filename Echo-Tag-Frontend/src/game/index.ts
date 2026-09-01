@@ -323,7 +323,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   const onPortalUsed = (slot: number): void => {
     if (slot !== mySlot) return
     snapCamera(cam, world.x[slot]!, world.y[slot]!)
-    audio.flutter()
+    audio.warp()
   }
 
   // ── Mute button: bottom-right corner, clear of the thumb arcs ──
@@ -501,14 +501,19 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     if (mode.kind === 'host' && mode.mapIndex !== undefined && mode.mapIndex !== 0) {
       net.setMapIndex(mode.mapIndex)
     }
-    const { createChatUi } = await import('./chat.ts')
-    chatUi = createChatUi({
-      send: (t) => net.sendChat(t),
-      colorSlotOf: (slot) => world.colorSlot[slot]!,
-      colorOf: (c) => PLAYER_COLORS[c % PLAYER_COLORS.length]!,
-      mySlot: () => mySlot,
-    })
-    net.onChat((slot, text) => chatUi!.push(slot, text))
+    // Chat is gated behind a build flag: Poki (and some other portals) require prior
+    // approval for any chat/UGC, so the Poki package builds with VITE_CHAT=off and the
+    // portal-neutral package keeps it on (docs/POKI_DEPLOY.md).
+    if ((import.meta as { env?: Record<string, string> }).env?.VITE_CHAT !== 'off') {
+      const { createChatUi } = await import('./chat.ts')
+      chatUi = createChatUi({
+        send: (t) => net.sendChat(t),
+        colorSlotOf: (slot) => world.colorSlot[slot]!,
+        colorOf: (c) => PLAYER_COLORS[c % PLAYER_COLORS.length]!,
+        mySlot: () => mySlot,
+      })
+      net.onChat((slot, text) => chatUi!.push(slot, text))
+    }
     net.onEmote((slot, n) => triggerEmote(emoteState, slot, n, performance.now()))
     net.onLobby((view) => lobbyUi!.update(view))
     net.onTag((from, to) => {

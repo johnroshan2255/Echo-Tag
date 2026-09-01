@@ -169,11 +169,11 @@ describe('lair grabbers (nest spiders / hive UFOs)', () => {
   })
 
   it('the hive has UFO lairs with the same rules', () => {
-    const w = playing(2, 3) // Warrens: UFO anchors at (20,4) and (20,18)
+    const w = playing(2, 3) // Warrens: UFO anchors at (20,7) and (20,14)
     const inputs = new Uint8Array(MAX_PLAYERS)
     setIt(w, 0)
     park(w, 0, 3, 19)
-    park(w, 1, 20, 4.8) // under the (20,4) saucer
+    park(w, 1, 20, 7.8) // under the (20,7) saucer
     assert.ok(runUntilCaught(w, inputs, 1) >= 0, 'the tractor beam catches a wanderer')
     assert.notEqual(w.heldByNest[1], NO_SLOT)
     assert.equal(w.itTimeMs[1], 0, 'abduction costs no score-time either')
@@ -234,12 +234,12 @@ describe('closed doors block monster weapons', () => {
   })
 
   it('a beam stops at a shut door', () => {
-    const w = playing(2, 3) // Warrens: door at (8,3) spans (8,3)+(8,4), axis 1
+    const w = playing(2, 3) // Warrens: door at (22,11) spans (22,11)+(23,11), axis 0
     const inputs = new Uint8Array(MAX_PLAYERS)
     setIt(w, 0)
-    park(w, 0, 5.5, 3.5) // west of the door, outside its trigger radius
-    park(w, 1, 11.5, 3.5) // east of the door, on the beam line
-    w.facing[0] = 0
+    park(w, 0, 22.5, 9) // north of the door, outside its trigger radius
+    park(w, 1, 22.5, 13.5) // south of the door, on the beam line
+    w.facing[0] = Math.PI / 2
     w.immuneUntilTick[1] = 0
     queueAbility(w, 0)
     for (let t = 0; t < 30; t++) stepWorld(w, inputs)

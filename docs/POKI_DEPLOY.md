@@ -51,12 +51,26 @@ multiplayer buttons report the failure and point the player at PLAY.
 - [x] Auto input detection, no device picker — keyboard and joystick coexist
 - [x] Joystick sizing/safe-zones per spec — 110/55px, 10px dead zone, 20px edge clearance
 - [x] Up to 12 players, bot-fill, lobby wait ≤2s (public rooms)
-- [ ] **Chat / UGC needs Poki's prior approval** — the game now has room chat (relay-only,
-      rate-limited, control-chars stripped, never stored) and private room codes. Poki
-      requires approval and moderation tooling for any chat; either get that approval
-      before submitting, or ship the first submission with chat disabled behind a build
-      flag and re-enable once approved.
-- [x] SDK events wired as above
+- [x] **Chat / UGC needs Poki's prior approval** — handled: `npm run package` builds with
+      `VITE_CHAT=off`, which dead-code-eliminates the whole chat chunk from the Poki zip
+      (verified: no `chat.*.js` emitted, no reference from the game chunk). The
+      portal-neutral `package:web` zip keeps chat on. Once Poki approves chat, drop the
+      flag from the `package` script and repackage.
+- [x] SDK events wired as above — verified end-to-end against a stubbed PokiSDK
+      (playwright): `init` → `gameLoadingFinished` when the menu is usable;
+      `gameplayStart` fires only on the first real input during play (not on load, not on
+      a menu tap); round end fires `gameplayStop` then `commercialBreak` with the mute
+      callback invoked. When stubbing, block `game-cdn.poki.com` or the real SDK
+      overwrites the stub mid-test.
+- [x] No fullscreen hijack under Poki — the first-tap/game-start `requestFullscreen`
+      calls are skipped whenever `PokiSDK` is present (Poki's page has its own
+      fullscreen control); self-hosted builds keep the behaviour.
+- [x] Menu audio (terror bed) is autoplay-safe: starts only on the first
+      pointerdown/keydown, suspends on hidden tabs, closes when the game's engine starts.
 - [x] Clean build — no sourcemaps, no dev tools, dev URL hooks are inert without their params
 - [ ] Real-device pass (mid-range Android + iOS Safari) — do this before submitting
 - [ ] Run Poki Inspector against a hosted build
+- [ ] Multiplayer server: `.env` still points at localhost, so the current zip is
+      **PLAY/bots-only on Poki** (`npm run package` warns about this). Deploy
+      `Echo-Tag-Server` behind wss, set `VITE_WS_ORIGIN`, and repackage to light up
+      QUICK MATCH / HOST / JOIN.

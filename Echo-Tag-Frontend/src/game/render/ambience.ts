@@ -131,7 +131,11 @@ export const seedAmbience = (layer: AmbienceLayer, map: GameMap): void => {
   layer.hiveStyle = map.index === 3
   for (const p of layer.particles) p.tint = layer.hiveStyle ? 0x7dffe0 : FIREFLY_TINT
   for (const p of layer.spiders) p.tint = layer.hiveStyle ? 0x3f7a4a : SPIDER_TINT
-  for (const p of layer.bats) p.tint = layer.hiveStyle ? 0x8fa4c4 : BAT_TINT
+  // Hive: bat particles pair up into saucers — even indices are hulls, odd are the pale
+  // glass domes riding on them (see renderAmbience).
+  layer.bats.forEach((p, i) => {
+    p.tint = layer.hiveStyle ? (i % 2 === 1 ? 0xcfe8ff : 0x8fa4c4) : BAT_TINT
+  })
   for (let i = 0; i < FIREFLY_COUNT; i++) {
     const tile = map.openTiles[Math.floor(rng() * map.openTiles.length)]!
     layer.baseX[i] = (tile % MAP_TILES_X) * MAP_TILE + rng() * MAP_TILE
@@ -201,15 +205,29 @@ export const renderAmbience = (layer: AmbienceLayer, nowMs: number, camX: number
     for (let i = 0; i < BAT_COUNT; i++) {
       const p = layer.bats[i]!
       if (layer.hiveStyle) {
-        // A UFO squadron: flat silent saucers in a staggered vee, gliding with a slow
-        // bob — no wingbeat, which is exactly what makes them read as machines.
-        const lag = i * 64
-        const spread = (i - (BAT_COUNT - 1) / 2) * 54
-        p.x = layer.batOriginX + layer.batDirX * (dist - lag) - layer.batDirY * spread
-        p.y = layer.batOriginY + layer.batDirY * (dist - lag) + layer.batDirX * spread + Math.sin(t * 2 + i) * 6
-        p.scaleX = (BAT_SIZE / 8) * 2.4
-        p.scaleY = (BAT_SIZE / 8) * 0.7
-        p.alpha = 0.8
+        // A UFO squadron: silent saucers in a staggered vee, gliding with a slow bob — no
+        // wingbeat, which is exactly what makes them read as machines. Each saucer is a
+        // pair of particles: a wide flat hull plus a pale dome riding on top, so the shape
+        // is a disc with a canopy rather than a lone flying bar.
+        const si = i >> 1
+        const dome = (i & 1) === 1
+        const lag = si * 120
+        const spread = (si - (((BAT_COUNT >> 1) - 1) / 2)) * 68
+        const bx = layer.batOriginX + layer.batDirX * (dist - lag) - layer.batDirY * spread
+        const by = layer.batOriginY + layer.batDirY * (dist - lag) + layer.batDirX * spread + Math.sin(t * 1.8 + si) * 7
+        if (dome) {
+          p.x = bx
+          p.y = by - 7
+          p.scaleX = (BAT_SIZE / 8) * 1.1
+          p.scaleY = (BAT_SIZE / 8) * 0.75
+          p.alpha = 0.75
+        } else {
+          p.x = bx
+          p.y = by
+          p.scaleX = (BAT_SIZE / 8) * 2.8
+          p.scaleY = (BAT_SIZE / 8) * 0.62
+          p.alpha = 0.8 + 0.12 * Math.sin(t * 7 + si) // running lights shimmer
+        }
       } else {
         const lag = i * 46 + Math.sin(t * 2.1 + i * 2.7) * 22 // stagger + jostle
         const weave = Math.sin(t * 3.4 + i * 1.9) * 46
