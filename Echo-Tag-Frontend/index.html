@@ -23,8 +23,11 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icon-192.png" />
 
-    <!-- Poki SDK: loaded async, never blocks first paint. The game boots with or without it. -->
+    <!-- Portal SDKs: loaded async, never block first paint; the game boots with or without
+         them. Each package keeps exactly one (tools/package strips the other): the Poki zip
+         ships poki-sdk, the CrazyGames zip ships crazygames-sdk, the web zip ships neither. -->
     <script src="https://game-cdn.poki.com/scripts/v2/poki-sdk.js" async></script>
+    <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js" async></script>
 
 
 

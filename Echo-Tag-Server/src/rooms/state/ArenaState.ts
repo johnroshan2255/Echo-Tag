@@ -20,6 +20,8 @@ export const PlayerMeta = schema(
     itTimeMs: 'uint32',
     /** Times caught this round — the score tie-breaker (fewer is better). */
     caught: 'uint8',
+    /** Portal username (CrazyGames), sanitised on join; '' for bots and anonymous players. */
+    name: 'string',
   },
   'PlayerMeta',
 )
@@ -62,12 +64,13 @@ export const createArenaState = (): ArenaStateT => {
   return s
 }
 
-export const createPlayerMeta = (slot: number, colorSlot: number, isBot: boolean): PlayerMetaT => {
+export const createPlayerMeta = (slot: number, colorSlot: number, isBot: boolean, name = ''): PlayerMetaT => {
   const m = new PlayerMeta()
   m.slot = slot
   m.colorSlot = colorSlot
   m.isBot = isBot
   m.itTimeMs = 0
   m.caught = 0
+  m.name = name
   return m
 }

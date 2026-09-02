@@ -57,7 +57,13 @@ import { createArenaState, createPlayerMeta, type ArenaStateT } from './state/Ar
 
 interface JoinOptions {
   code?: string
+  /** Portal username (CrazyGames: 6-20 chars of [A-Za-z0-9_.]). Anything else is dropped. */
+  name?: string
 }
+
+/** Usernames are shown to strangers: whitelist the charset, cap the length, mask profanity. */
+const cleanName = (raw: unknown): string =>
+  typeof raw === 'string' ? filterProfanity(raw.replace(/[^A-Za-z0-9_.]/g, '').slice(0, 20)) : ''
 
 const isBotFill = (w: World, slot: number): boolean => w.isBot[slot] === 1
 
@@ -222,7 +228,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     this.setSimulationInterval(() => this.tick(), TICK_MS)
   }
 
-  override onJoin(client: Client, _options: JoinOptions): void {
+  override onJoin(client: Client, options: JoinOptions): void {
     // Reclaim a bot seat if the room is full of fill; humans always outrank bots.
     let slot = addPlayer(this.world, false)
     if (slot < 0) {
@@ -243,7 +249,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     this.lastHumanInput[slot] = 0
     this.lastSeq[slot] = 0
 
-    this.state.players.set(client.sessionId, createPlayerMeta(slot, this.world.colorSlot[slot]!, false))
+    this.state.players.set(client.sessionId, createPlayerMeta(slot, this.world.colorSlot[slot]!, false, cleanName(options?.name)))
     this.state.humans++
     if (this.state.hostId === '') this.state.hostId = client.sessionId
 

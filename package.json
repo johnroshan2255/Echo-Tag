@@ -28,9 +28,10 @@
     "check": "npm run build && npm run size && npm run check:browser",
     "crop": "node tools/check/crop.ts",
     "check:mp": "node tools/check/mp-probe.ts && node tools/check/mp-check.ts",
-    "package": "VITE_CHAT=off npm run build && cd Echo-Tag-Frontend/dist && rm -f ../../echo-tag-poki.zip && zip -qr ../../echo-tag-poki.zip . -x '*.map' -x '*.br' -x '*.gz' && cd ../.. && echo 'echo-tag-poki.zip (chat disabled pending Poki approval):' && du -h echo-tag-poki.zip && if grep -rqs 'localhost:2567' Echo-Tag-Frontend/dist/a; then echo '!! VITE_WS_ORIGIN is localhost: QUICK MATCH/HOST/JOIN will fail on Poki (PLAY/bots still works). Deploy the server behind wss and rebuild — docs/POKI_DEPLOY.md'; fi",
+    "check:cg": "node tools/check/cg-check.ts",
+    "package": "VITE_CHAT=off npm run build && node tools/package/strip-sdk.mjs Echo-Tag-Frontend/dist/index.html crazygames-sdk && cd Echo-Tag-Frontend/dist && rm -f ../../echo-tag-poki.zip && zip -qr ../../echo-tag-poki.zip . -x '*.map' -x '*.br' -x '*.gz' && cd ../.. && echo 'echo-tag-poki.zip (Poki SDK only, chat disabled pending Poki approval):' && du -h echo-tag-poki.zip",
     "package:crazygames": "node tools/package/crazygames.mjs",
-    "package:web": "npm run build && rm -rf .tmp-webdist && cp -R Echo-Tag-Frontend/dist .tmp-webdist && node -e \"const f='.tmp-webdist/index.html';const fs=require('fs');fs.writeFileSync(f,fs.readFileSync(f,'utf8').split('\\n').filter(l=>!l.includes('poki-sdk')).join('\\n'))\" && cd .tmp-webdist && rm -f ../echo-tag-web.zip && zip -qr ../echo-tag-web.zip . -x '*.map' -x '*.br' -x '*.gz' && cd .. && rm -rf .tmp-webdist && echo 'echo-tag-web.zip (portal-neutral, no Poki SDK):' && du -h echo-tag-web.zip"
+    "package:web": "npm run build && rm -rf .tmp-webdist && cp -R Echo-Tag-Frontend/dist .tmp-webdist && node tools/package/strip-sdk.mjs .tmp-webdist/index.html poki-sdk crazygames-sdk && cd .tmp-webdist && rm -f ../echo-tag-web.zip && zip -qr ../echo-tag-web.zip . -x '*.map' -x '*.br' -x '*.gz' && cd .. && rm -rf .tmp-webdist && echo 'echo-tag-web.zip (portal-neutral, no SDKs):' && du -h echo-tag-web.zip"
   },
   "devDependencies": {
     "playwright": "^1.62.1",

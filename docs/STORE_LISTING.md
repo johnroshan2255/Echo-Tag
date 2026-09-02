@@ -10,8 +10,9 @@ self-hosting).
 Chat policy differs per portal: Poki wants prior approval for any chat/UGC, so the Poki
 zip strips it. CrazyGames allows chat provided it is moderated — the server masks
 profanity on every relay (`Echo-Tag-Shared/src/chat/profanity.ts`), which is their
-stated minimum. For a CrazyGames **Full Launch** (ads on) the game must also integrate
-their SDK, including honouring the SDK's chat-disable setting.
+stated minimum. The CrazyGames SDK (v3) is integrated on top: gameplay/loading events,
+midgame ads, settings (mute, chat), and the Online-with-Friends room flows — see
+docs/CRAZYGAMES_DEPLOY.md.
 
 Multiplayer needs the Colyseus server deployed with wss and `VITE_WS_ORIGIN` set at
 build time (see POKI_DEPLOY.md) — PLAY (bots) works on every portal with zero backend.
@@ -83,8 +84,8 @@ PT-BR and ES first: they are the biggest non-EN traffic pools.
 
 - [ ] Poki: `echo-tag-poki.zip` — chat approval FIRST (or ship chat behind a flag).
 - [ ] CrazyGames: `echo-tag-crazygames.zip` + `docs/store-assets/` (cover-512 + four
-      1280x720 screenshots) + preview video. Basic Launch needs no SDK (and pays
-      nothing); Full Launch = CrazyGames SDK + chat-disable preference + second QA.
+      1280x720 screenshots) + preview video. SDK v3 integrated incl. Online with Friends
+      (docs/CRAZYGAMES_DEPLOY.md) — answer "yes" to friends, SDK mute and chat.
 - [ ] itch.io: `echo-tag-web.zip` as HTML5 playable + devlog post (the "4 worlds,
       4 monsters" writeup with the world screenshots).
 - [ ] GameDistribution / Newgrounds: `echo-tag-web.zip`.

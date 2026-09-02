@@ -6,7 +6,7 @@
 //
 //   npm run package:crazygames   →  echo-tag-crazygames.zip
 import { execSync } from 'node:child_process'
-import { cpSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = new URL('../../', import.meta.url).pathname
@@ -19,11 +19,10 @@ const run = (cmd, opts = {}) => execSync(cmd, { cwd: ROOT, stdio: 'inherit', ...
 run('npm run build', { env: { ...process.env, VITE_CHAT: undefined } })
 
 // 2. Stage a copy and strip the Poki SDK <script> — CrazyGames rejects competing-portal
-//    branding/SDKs (FAQ → "Monetization eligibility").
+//    branding/SDKs (FAQ → "Monetization eligibility"). The CrazyGames SDK tag stays.
 rmSync(STAGE, { recursive: true, force: true })
 cpSync(DIST, STAGE, { recursive: true })
-const index = join(STAGE, 'index.html')
-writeFileSync(index, readFileSync(index, 'utf8').split('\n').filter((l) => !l.includes('poki-sdk')).join('\n'))
+run(`node tools/package/strip-sdk.mjs "${join(STAGE, 'index.html')}" poki-sdk`)
 
 // 3. Drop source maps and precompressed twins (the portal serves its own compression).
 const walk = (dir, out = []) => {
@@ -43,7 +42,7 @@ const files = walk(STAGE)
 const totalBytes = files.reduce((n, f) => n + statSync(f).size, 0)
 const mb = (b) => (b / 1e6).toFixed(1) + ' MB'
 const ok = (cond) => (cond ? 'ok' : '!! OVER LIMIT')
-console.log(`\necho-tag-crazygames.zip (portal-neutral, chat ON with server-side profanity filter)`)
+console.log(`\necho-tag-crazygames.zip (CrazyGames SDK, chat ON with server-side profanity filter)`)
 console.log(`  zip size       ${mb(statSync(ZIP).size)}`)
 console.log(`  unpacked total ${mb(totalBytes)}   (limit 250 MB) ${ok(totalBytes <= 250e6)}`)
 console.log(`  file count     ${files.length}   (limit 1500)   ${ok(files.length <= 1500)}`)

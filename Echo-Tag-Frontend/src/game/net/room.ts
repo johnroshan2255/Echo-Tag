@@ -41,6 +41,8 @@ export type JoinMode =
   | { kind: 'quick' }
   | { kind: 'host'; code: string }
   | { kind: 'code'; code: string }
+  /** A specific public room by Colyseus id (CrazyGames friend-join into quick match). */
+  | { kind: 'id'; roomId: string }
 
 export interface LobbyView {
   phase: number
@@ -54,12 +56,17 @@ export interface LobbyView {
   isPrivate: boolean
   code: string
   /** Ranked rows for the results screen: least It-time first, caught count as tiebreak. */
-  scores: Array<{ colorSlot: number; itTimeMs: number; caught: number; isBot: boolean; slot: number }>
+  /** Portal username (CrazyGames), absent for local bot rounds and anonymous players. */
+  scores: Array<{ colorSlot: number; itTimeMs: number; caught: number; isBot: boolean; slot: number; name?: string }>
 }
 
 export interface NetGame {
   world: World
   mySlot: number
+  /** The Colyseus room id — how a friend is pointed at a public room. */
+  roomId: string
+  /** Portal username for a slot, or '' — players without one stay their colour. */
+  nameOf(slot: number): string
   /** Fraction [0,1) of the way to the next expected snapshot — the render lerp. */
   alpha(): number
   prevX: Float32Array
@@ -111,13 +118,14 @@ export const makeCode = (): string => {
   return code
 }
 
-export const connect = async (mode: JoinMode): Promise<NetGame> => {
+export const connect = async (mode: JoinMode, name = ''): Promise<NetGame> => {
   const client = new Client(wsOrigin())
   let room: Room
-  const code = mode.kind === 'quick' ? '' : mode.code
-  if (mode.kind === 'quick') room = await client.joinOrCreate('arena', { code: '' })
-  else if (mode.kind === 'host') room = await client.create('arena', { code })
-  else room = await client.join('arena', { code })
+  const code = mode.kind === 'quick' || mode.kind === 'id' ? '' : mode.code
+  if (mode.kind === 'quick') room = await client.joinOrCreate('arena', { code: '', name })
+  else if (mode.kind === 'id') room = await client.joinById(mode.roomId, { code: '', name })
+  else if (mode.kind === 'host') room = await client.create('arena', { code, name })
+  else room = await client.join('arena', { code, name })
 
   // The room code lives in the URL, so a refresh rejoins the same room and keeps playing.
   // Quick-match rooms have no code and stay unaddressable, exactly as before.
@@ -156,6 +164,7 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
   let emoteCb: ((slot: number, n: number) => void) | null = null
   let hostLeftCb: (() => void) | null = null
   let lastLobbyView: LobbyView | null = null
+  const names: string[] = new Array<string>(MAX_PLAYERS).fill('')
   let prevIt = NO_SLOT
   let firstSnapshot = true
   let hasRoundSetup = false
@@ -401,12 +410,16 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
       roundMins: number
       hostId: string
       isPrivate: boolean
-      players: { forEach(cb: (m: { slot: number; colorSlot: number; isBot: boolean; itTimeMs: number; caught: number }) => void): void }
+      players: {
+        forEach(cb: (m: { slot: number; colorSlot: number; isBot: boolean; itTimeMs: number; caught: number; name?: string }) => void): void
+      }
     }
     const scores: LobbyView['scores'] = []
+    names.fill('')
     s.players.forEach((m) => {
       world.colorSlot[m.slot] = m.colorSlot
-      scores.push({ slot: m.slot, colorSlot: m.colorSlot, isBot: m.isBot, itTimeMs: m.itTimeMs, caught: m.caught ?? 0 })
+      names[m.slot] = m.name ?? ''
+      scores.push({ slot: m.slot, colorSlot: m.colorSlot, isBot: m.isBot, itTimeMs: m.itTimeMs, caught: m.caught ?? 0, name: m.name ?? '' })
     })
     // Same ordering as the shared leaderboard(): least It-time, then fewest catches, then slot.
     scores.sort((a, b) => a.itTimeMs - b.itTimeMs || a.caught - b.caught || a.slot - b.slot)
@@ -429,6 +442,8 @@ export const connect = async (mode: JoinMode): Promise<NetGame> => {
     get mySlot() {
       return mySlot
     },
+    roomId: room.roomId,
+    nameOf: (slot) => names[slot] ?? '',
     alpha: () => Math.min((performance.now() - lastSnapAt) / TICK_MS, 1) + sinceSnapMs * 0,
     prevX,
     prevY,

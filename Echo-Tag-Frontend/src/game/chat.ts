@@ -50,6 +50,8 @@ export const createChatUi = (opts: {
   colorSlotOf(slot: number): number
   colorOf(colorSlot: number): number
   mySlot(): number
+  /** Portal username for a slot, '' when there is none (falls back to the colour name). */
+  nameOf?(slot: number): string
 }): ChatUi => {
   // ── The bubble button ──
   const button = document.createElement('button')
@@ -201,7 +203,8 @@ export const createChatUi = (opts: {
       swatch.style.cssText =
         `display:inline-block;width:9px;height:9px;margin-right:6px;background:${css(opts.colorOf(colorSlot))};`
       const name = document.createElement('span')
-      name.textContent = `${COLOR_NAMES[colorSlot % COLOR_NAMES.length]}${slot === opts.mySlot() ? ' (YOU)' : ''}  `
+      const who = opts.nameOf?.(slot) || COLOR_NAMES[colorSlot % COLOR_NAMES.length]
+      name.textContent = `${who}${slot === opts.mySlot() ? ' (YOU)' : ''}  `
       name.style.cssText = `color:${css(opts.colorOf(colorSlot))};font-weight:700;letter-spacing:1px;`
       const body = document.createElement('span')
       body.textContent = text // textContent, always: no markup ever executes

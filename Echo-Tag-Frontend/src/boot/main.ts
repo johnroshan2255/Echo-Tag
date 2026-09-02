@@ -1,6 +1,14 @@
 import { animatePreview, drawPreview } from './preview.ts'
 import { armMenuAudio, menuThunder, stopMenuAudio } from './menuAudio.ts'
-import { pokiInit, pokiLoadingFinished } from '../platform/poki.ts'
+import { portalInit, portalLoadingFinished, underPortal } from '../platform/portal.ts'
+import {
+  cgInstantMultiplayer,
+  cgInviteAtLoad,
+  cgOnJoinRoom,
+  cgOnSettingsChange,
+  cgSettings,
+  type RoomInvite,
+} from '../platform/crazygames.ts'
 import { T } from '../platform/i18n.ts'
 import { MAP_COUNT, MAPS, MONSTER_NAMES } from '@echo-tag/shared'
 import { drawMinimap } from './minimap.ts'
@@ -23,11 +31,13 @@ import { drawMinimap } from './minimap.ts'
 // `webgl2` on a canvas that has already handed out a `2d` context returns null, and PixiJS
 // reports it as "this browser does not support WebGL". Learned the hard way; the headless
 // check now guards it.
-const stage = document.getElementById('stage') as HTMLCanvasElement | null
+const stage0 = document.getElementById('stage') as HTMLCanvasElement | null
 const preview = document.getElementById('preview') as HTMLCanvasElement | null
 const ui = document.getElementById('ui')
 
-if (!stage || !preview || !ui) throw new Error('boot: #stage, #preview or #ui missing from index.html')
+if (!stage0 || !preview || !ui) throw new Error('boot: #stage, #preview or #ui missing from index.html')
+// `let`: switchRoom (below) replaces the canvas when a CrazyGames invite swaps sessions.
+let stage: HTMLCanvasElement = stage0
 
 // ── Canvas sizing ────────────────────────────────────────────────────────────
 // Capped at 2x: beyond that a phone pays for pixels nobody can see, and this game is
@@ -73,16 +83,15 @@ globalThis.visualViewport?.addEventListener('resize', refitSettled, { passive: t
 // gesture re-enters fullscreen if the player ever dropped out (Esc, alt-tab). A request
 // on page load is impossible — every browser hard-gates the Fullscreen API behind a user
 // gesture — so the first interaction is the earliest legal moment.
-// Two exemptions: Poki (its page has its own fullscreen control and its QA flags games
-// that hijack fullscreen), and the Escape key itself (re-entering on the very gesture
-// that exits would trap the player in a fight with the browser).
-// "Under Poki" means actually embedded in their page (the SDK script alone also loads on
-// localhost and self-hosted copies of the Poki build — presence isn't context). Poki runs
-// games in an iframe; a top-level window is never their player page.
-const underPoki = (): boolean => 'PokiSDK' in globalThis && globalThis.self !== globalThis.top
+// Two exemptions: portals (Poki and CrazyGames pages have their own fullscreen control
+// and their QA flags games that hijack it), and the Escape key itself (re-entering on the
+// very gesture that exits would trap the player in a fight with the browser).
+// "Under a portal" means actually embedded in their page (the SDK script alone also loads
+// on localhost and self-hosted copies — presence isn't context). Portals run games in an
+// iframe; a top-level window is never their player page.
 let lastFsTry = 0
 const holdFullscreen = (e: Event): void => {
-  if (underPoki() || document.fullscreenElement) return
+  if (underPortal() || document.fullscreenElement) return
   if ((e as KeyboardEvent).key === 'Escape') return
   const now = Date.now()
   if (now - lastFsTry < 700) return // one polite retry per gesture burst
@@ -103,6 +112,7 @@ addEventListener('keydown', holdFullscreen)
 // when Play is actually pressed — a network failure should not blank the preview.
 type GameModule = typeof import('../game/index.ts')
 type GameMode = import('../game/index.ts').GameMode
+type GameHandle = import('../game/index.ts').GameHandle
 let gameModule: Promise<GameModule> | null = import('../game/index.ts')
 gameModule.catch(() => {})
 
@@ -230,6 +240,8 @@ bmapNext.addEventListener('click', () => {
 updateBmap()
 
 let starting = false
+/** The running session, once there is one — the CrazyGames join listener swaps it out. */
+let handle: GameHandle | null = null
 
 const start = async (mode: GameMode): Promise<void> => {
   if (starting) return
@@ -243,7 +255,7 @@ const start = async (mode: GameMode): Promise<void> => {
   try {
     const mod = await (gameModule ?? import('../game/index.ts'))
     fit(stage)
-    await mod.startGame(stage, mode)
+    handle = await mod.startGame(stage, mode)
 
     menu.remove()
     document.getElementById('howto')?.remove() // the rules sheet must not outlive the menu
@@ -264,7 +276,7 @@ const start = async (mode: GameMode): Promise<void> => {
     status.textContent =
       mode.kind === 'bots'
         ? T.errLoad
-        : mode.kind === 'code'
+        : mode.kind === 'code' || mode.kind === 'id'
           ? full
             ? T.errFull
             : T.errNoRoom
@@ -318,6 +330,50 @@ addEventListener('keydown', onMenuKey)
 document.documentElement.dataset.boot = 'ready'
 performance.mark('echo-tag:boot-ready')
 
-// Poki: the menu IS the loaded state — the player can interact right now. gameplayStart
+// ── CrazyGames "Online with Friends" ─────────────────────────────────────────
+// A friend's invite carries the room in the SDK's invite params (a private code, or a
+// public room's id); the party leader arriving through "play with friends" has the
+// instant-multiplayer flag set and expects a joinable room with no menu detour. Both
+// resolve to the same start() the buttons use.
+const inviteMode = (inv: RoomInvite): GameMode =>
+  'room' in inv ? { kind: 'code', code: inv.room } : { kind: 'id', roomId: inv.rid }
+
+// Accepting an invite while ALREADY playing must not reload the page (their requirement).
+// The session tears down and a new one boots on a fresh canvas: destroying a WebGL
+// renderer loses the canvas's context, and a canvas never gets a second one.
+const switchRoom = async (inv: RoomInvite): Promise<void> => {
+  const mode = inviteMode(inv)
+  if (!handle) {
+    void start(mode) // still on the menu (or mid-start): the ordinary path
+    return
+  }
+  const old = handle
+  handle = null
+  old.destroy()
+  const fresh = stage.cloneNode(false) as HTMLCanvasElement
+  stage.replaceWith(fresh)
+  stage = fresh
+  fit(stage)
+  try {
+    const mod = await (gameModule ?? import('../game/index.ts'))
+    handle = await mod.startGame(stage, mode)
+  } catch (err) {
+    console.error('boot: room switch failed', err)
+    location.search = 'room' in inv ? `?room=${inv.room}` : '' // last resort: a clean reload
+  }
+}
+
+// Portals: the menu IS the loaded state — the player can interact right now. gameplayStart
 // deliberately does NOT happen here; it fires on the first in-round input (game/index.ts).
-void pokiInit().then(pokiLoadingFinished)
+void portalInit().then(() => {
+  portalLoadingFinished()
+  // CrazyGames' player has its own mute toggle; the menu's terror bed obeys it too.
+  if (cgSettings().muteAudio) stopMenuAudio()
+  cgOnSettingsChange((s) => {
+    if (s.muteAudio) stopMenuAudio()
+  })
+  const inv = cgInviteAtLoad()
+  if (inv) void start(inviteMode(inv))
+  else if (cgInstantMultiplayer()) void start({ kind: 'host', mapIndex: bmapIndex })
+  cgOnJoinRoom((next) => void switchRoom(next))
+})

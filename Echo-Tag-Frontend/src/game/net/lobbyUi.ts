@@ -12,6 +12,9 @@ import { TG } from '../../platform/i18nGame.ts'
  */
 
 const hex = (c: number): string => `#${c.toString(16).padStart(6, '0')}`
+/** Usernames are server-sanitised to [A-Za-z0-9_.], but the roster is innerHTML — escape anyway. */
+const esc = (t: string): string => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+const nameTag = (name?: string): string => (name ? `<span class="lobby-name">${esc(name)}</span>` : '')
 
 export interface LobbyUi {
   update(view: LobbyView): void
@@ -23,6 +26,8 @@ export const createLobbyUi = (
   onBots?: (n: number) => void,
   onMins?: (n: number) => void,
   onMap?: (n: number) => void,
+  /** Builds the invite URL for a code; defaults to this page + ?room=CODE. */
+  inviteUrl?: (code: string) => string,
 ): LobbyUi => {
   const root = document.createElement('div')
   root.id = 'lobby'
@@ -83,6 +88,10 @@ export const createLobbyUi = (
       margin: 0 0 16px; max-width: 320px; }
     .lobby-dot { width: 22px; height: 22px; border: 3px solid rgba(0,0,0,.4); }
     .lobby-dot.bot { opacity: .38; }
+    /* Square + (portal username): friends find each other by name, everyone else by colour. */
+    .lobby-who { display: inline-flex; align-items: center; gap: 6px; }
+    .lobby-name { font: 400 9px/1 var(--pf); color: #e9ddff; letter-spacing: .04em;
+      max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #lobby-start { pointer-events: auto; cursor: pointer; border: 0; padding: 14px 30px;
       font: 400 12px/1.4 var(--pf); letter-spacing: .04em; color: #241505;
       background: #ffc07a; }
@@ -153,7 +162,7 @@ export const createLobbyUi = (
   inviteBtn.addEventListener('click', () => {
     const code = codeVal.textContent ?? ''
     if (code.length !== 5) return
-    const url = `${location.origin}${location.pathname}?room=${code}`
+    const url = inviteUrl?.(code) ?? `${location.origin}${location.pathname}?room=${code}`
     const done = (): void => {
       inviteBtn.textContent = TG.copied
       inviteBtn.classList.add('copied')
@@ -264,10 +273,11 @@ export const createLobbyUi = (
               : TG.hintNeedOne
             : TG.hintWaitHost(view.roundMins)
           : TG.hintPublic(view.humans)
+        // Portal usernames (CrazyGames) sit beside the square so friends find each other.
         roster.innerHTML = view.scores
           .map(
             (p) =>
-              `<div class="lobby-dot px-xs${p.isBot ? ' bot' : ''}" style="background:${hex(PLAYER_COLORS[p.colorSlot % PLAYER_COLORS.length]!)}"></div>`,
+              `<span class="lobby-who"><span class="lobby-dot px-xs${p.isBot ? ' bot' : ''}" style="background:${hex(PLAYER_COLORS[p.colorSlot % PLAYER_COLORS.length]!)}"></span>${nameTag(p.name)}</span>`,
           )
           .join('')
       } else {
@@ -294,7 +304,7 @@ export const createLobbyUi = (
             return (
               `<div class="lobby-row"><span class="who">` +
               `<span class="lobby-dot${p.isBot ? ' bot' : ''}" style="background:${hex(PLAYER_COLORS[p.colorSlot % PLAYER_COLORS.length]!)}"></span>` +
-              `#${i + 1}${p.isBot ? ` · ${TG.bot}` : ''}</span>` +
+              `#${i + 1}${p.name ? ` · ${esc(p.name)}` : ''}${p.isBot ? ` · ${TG.bot}` : ''}</span>` +
               `<span>${tag} ${p.caught > 0 ? `<span style="opacity:.6">${TG.caught} ${p.caught}x · </span>` : ''}${(p.itTimeMs / 1000).toFixed(1)}s</span></div>`
             )
           })

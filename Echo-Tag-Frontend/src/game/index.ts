@@ -61,7 +61,16 @@ import {
 } from './render/playerRenderer.ts'
 import { BODY, ECHO } from './render/templates.ts'
 import { renderMarkers } from './render/wardrobeMarkers.ts'
-import { pokiCommercialBreak, pokiGameplayStart, pokiGameplayStop } from '../platform/poki.ts'
+import { portalAdBreak, portalGameplayStart, portalGameplayStop } from '../platform/portal.ts'
+import {
+  cgHappytime,
+  cgInviteLink,
+  cgLeftRoom,
+  cgOnSettingsChange,
+  cgSettings,
+  cgUpdateRoom,
+  cgUsername,
+} from '../platform/crazygames.ts'
 import { FOG_COLOR, FOG_MAX_ALPHA, HIDDEN_VISION_SCALE, VISION_CLEAR, VISION_MAX } from './theme.ts'
 import { TG } from '../platform/i18nGame.ts'
 
@@ -107,6 +116,8 @@ export type GameMode =
   | { kind: 'quick' }
   | { kind: 'host'; mapIndex?: number }
   | { kind: 'code'; code: string }
+  /** A public room by id — how a CrazyGames friend follows you into quick match. */
+  | { kind: 'id'; roomId: string }
 
 export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { kind: 'bots' }): Promise<GameHandle> => {
   const renderer = new WebGLRenderer()
@@ -137,7 +148,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   const localInput = (): number => {
     const packed = joystick.active ? joystick.packed : keyboard.packed
     // Poki's gameplayStart contract: on the first INPUT of a session, never on load.
-    if (packed !== 0 && world.phase === RoundPhase.Playing) pokiGameplayStart()
+    if (packed !== 0 && world.phase === RoundPhase.Playing) portalGameplayStart()
     return packed
   }
   const driver = createDriverState()
@@ -152,20 +163,29 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     /* storage can be blocked (previews, private mode); default to sound on */
   }
   let breakMuted = false
+  // CrazyGames' player has its own mute toggle (SDK settings) — a third, independent gate.
+  let portalMuted = cgSettings().muteAudio === true
   const applyMute = (): void => {
-    audio.setMuted(userMuted || breakMuted)
-    setMusicMuted(userMuted || breakMuted)
+    const m = userMuted || breakMuted || portalMuted
+    audio.setMuted(m)
+    setMusicMuted(m)
   }
   applyMute()
   const emoteState = createEmoteState()
 
   // ── World: local simulation, or a mirror of the server's ──
+  // The CrazyGames username (when signed in there) rides along so friends recognise each
+  // other in the lobby and chat; everywhere else players stay their colour.
+  const username = mode.kind === 'bots' ? null : await cgUsername()
   const net = mode.kind === 'bots' ? null : await (await import('./net/room.ts')).connect(
     mode.kind === 'quick'
       ? { kind: 'quick' }
       : mode.kind === 'host'
         ? { kind: 'host', code: (await import('./net/room.ts')).makeCode() }
-        : { kind: 'code', code: mode.code },
+        : mode.kind === 'id'
+          ? { kind: 'id', roomId: mode.roomId }
+          : { kind: 'code', code: mode.code },
+    username ?? '',
   )
 
   let mapIndex = DEV_MAP >= 0 ? DEV_MAP : ((mode.kind === 'bots' || mode.kind === 'host') && mode.mapIndex !== undefined) ? mode.mapIndex : 0
@@ -437,6 +457,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     e.preventDefault()
     e.stopPropagation()
     showModal(TG.leaveConfirm, true, () => {
+      cgLeftRoom()
       net?.destroy()
       location.search = ''
     })
@@ -512,27 +533,47 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       (n) => net.setBots(n),
       (n) => net.setRoundMins(n),
       (n) => net.setMapIndex(n),
+      // On CrazyGames the invite link is theirs (opens the game page straight into the
+      // room, and counts for their friends feature); elsewhere it is this page + ?room=.
+      (code) => cgInviteLink({ room: code }) ?? `${location.origin}${location.pathname}?room=${code}`,
     )
     // The map picked on the boot menu carries into the hosted room. Safe to send here:
     // create() resolves only after the join that made this client the host.
     if (mode.kind === 'host' && mode.mapIndex !== undefined && mode.mapIndex !== 0) {
       net.setMapIndex(mode.mapIndex)
     }
-    // Chat is gated behind a build flag: Poki (and some other portals) require prior
-    // approval for any chat/UGC, so the Poki package builds with VITE_CHAT=off and the
-    // portal-neutral package keeps it on (docs/POKI_DEPLOY.md).
-    if ((import.meta as { env?: Record<string, string> }).env?.VITE_CHAT !== 'off') {
+    // Chat is gated twice: a build flag (Poki requires prior approval for any chat/UGC,
+    // so the Poki package builds with VITE_CHAT=off — docs/POKI_DEPLOY.md) and, live, the
+    // CrazyGames player's own chat setting, which can flip mid-session.
+    const chatBuilt = (import.meta as { env?: Record<string, string> }).env?.VITE_CHAT !== 'off'
+    const mountChat = async (): Promise<void> => {
+      if (!chatBuilt || chatUi || cgSettings().disableChat) return
       const { createChatUi } = await import('./chat.ts')
+      if (chatUi || cgSettings().disableChat) return // settings flipped during the import
       chatUi = createChatUi({
         send: (t) => net.sendChat(t),
         colorSlotOf: (slot) => world.colorSlot[slot]!,
         colorOf: (c) => PLAYER_COLORS[c % PLAYER_COLORS.length]!,
         mySlot: () => mySlot,
+        nameOf: (slot) => net.nameOf(slot),
       })
-      net.onChat((slot, text) => chatUi!.push(slot, text))
     }
+    await mountChat()
+    net.onChat((slot, text) => chatUi?.push(slot, text))
     net.onEmote((slot, n) => triggerEmote(emoteState, slot, n, performance.now()))
-    net.onLobby((view) => lobbyUi!.update(view))
+    // CrazyGames "Online with Friends": tell their player where we are and whether a
+    // friend can still follow (deduped inside the facade), and mark a won round as a
+    // happy moment. Quick-match rooms are addressed by id, private rooms by code.
+    let celebrated = false
+    net.onLobby((view) => {
+      lobbyUi!.update(view)
+      cgUpdateRoom(view.code !== '' ? { room: view.code } : { rid: net.roomId }, view.humans < MAX_PLAYERS)
+      if (view.phase !== RoundPhase.Leaderboard) celebrated = false
+      else if (!celebrated && view.scores.length > 1 && view.scores[0]!.slot === net.mySlot) {
+        celebrated = true
+        cgHappytime()
+      }
+    })
     net.onTag((from, to) => {
       onTagged(anim, to, performance.now())
       audio.onTag(world, (mySlot = net.mySlot), from, to)
@@ -540,6 +581,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     net.onHazard(onHazardCaught)
     net.onPortal(onPortalUsed)
     net.onHostLeft(() => {
+      cgLeftRoom()
       showModal(TG.hostLeft, false, () => {
         location.search = ''
       })
@@ -553,7 +595,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     const watchPhase = setInterval(() => {
       if (world.phase !== prevPhase) {
         if (prevPhase === RoundPhase.Playing) {
-          void pokiCommercialBreak(
+          void portalAdBreak(
             () => {
               breakMuted = true
               applyMute()
@@ -570,7 +612,10 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
         prevPhase = world.phase
       }
     }, 300)
-    cleanupNet = () => clearInterval(watchPhase)
+    cleanupNet = () => {
+      clearInterval(watchPhase)
+      cgLeftRoom()
+    }
     net.onRoundSetup(() => {
       mySlot = net.mySlot
       setLayersMap(layers, world.map)
@@ -583,6 +628,29 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     lobbyUi = createLobbyUi(() => {})
     lobbyUi.update(localResultsView())
   }
+
+  // CrazyGames settings can change mid-session (their player's mute and chat toggles).
+  cgOnSettingsChange((s) => {
+    portalMuted = s.muteAudio === true
+    applyMute()
+    if (s.disableChat) {
+      chatUi?.destroy()
+      chatUi = null
+    } else if (net) {
+      void (async () => {
+        if (chatUi || (import.meta as { env?: Record<string, string> }).env?.VITE_CHAT === 'off') return
+        const { createChatUi } = await import('./chat.ts')
+        if (chatUi) return
+        chatUi = createChatUi({
+          send: (t) => net.sendChat(t),
+          colorSlotOf: (slot) => world.colorSlot[slot]!,
+          colorOf: (c) => PLAYER_COLORS[c % PLAYER_COLORS.length]!,
+          mySlot: () => mySlot,
+          nameOf: (slot) => net.nameOf(slot),
+        })
+      })()
+    }
+  })
 
   // The round clock, in the same pixel register as the tool belt. Created after the
   // connect so a failed join never leaves it behind.
@@ -621,7 +689,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   // Tab hidden = play stopped, for the platform's session accounting. The next input after
   // returning re-fires gameplayStart via localInput().
   const onVis = (): void => {
-    if (document.hidden) pokiGameplayStop()
+    if (document.hidden) portalGameplayStop()
   }
   document.addEventListener('visibilitychange', onVis)
 
@@ -664,7 +732,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     if (ev.portalUsed !== NO_SLOT) onPortalUsed(ev.portalUsed)
     if (ev.roundEnded) {
       // Between rounds is the platform's ad slot; audio stays silent for its duration.
-      void pokiCommercialBreak(
+      void portalAdBreak(
         () => {
           breakMuted = true
           applyMute()
