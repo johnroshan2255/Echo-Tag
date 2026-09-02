@@ -151,6 +151,7 @@ try {
   ok(has(ca, 'init') && has(ca, 'loadingStart') && has(ca, 'loadingStop'), 'SDK init + loadingStart/loadingStop called')
   const codeA = await lobbyCode(A)
   ok(/^[A-Z]{5}$/.test(codeA), `landed in a private room without touching the menu (code ${codeA})`)
+  ok(ca.some((c) => c[0] === 'inviteLink' && (c[1] as { room?: string })?.room === codeA), 'inviteLink() fires automatically on private-lobby open (CrazyGames auto-detects it)')
   let room = lastRoom(ca)
   ok(room?.roomId === codeA && room?.isJoinable === true && room?.inviteParams?.room === codeA, 'updateRoom({roomId: code, isJoinable: true, inviteParams: {room}})')
   ok((await rosterNames(A)).includes('GhostHunter_1'), 'own CrazyGames username shown in the lobby roster')

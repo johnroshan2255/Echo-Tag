@@ -592,10 +592,18 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     // friend can still follow (deduped inside the facade), and mark a won round as a
     // happy moment. Quick-match rooms are addressed by id, private rooms by code.
     let celebrated = false
+    let inviteLinkMade = ''
     net.onLobby((view) => {
       lobbyUi!.update(view)
       myInv = view.code !== '' ? { room: view.code } : { rid: net.roomId }
       cgUpdateRoom(myInv, view.humans < MAX_PLAYERS)
+      // Register the invite link with the SDK as soon as a private room exists (once per
+      // code), not only when COPY INVITE LINK is tapped — so CrazyGames' review detects
+      // inviteLink() usage. The lobby button reuses the same call for the actual copy.
+      if (view.code !== '' && view.code !== inviteLinkMade) {
+        inviteLinkMade = view.code
+        cgInviteLink({ room: view.code })
+      }
       if (view.phase !== RoundPhase.Leaderboard) celebrated = false
       else if (!celebrated && view.scores.length > 1 && view.scores[0]!.slot === net.mySlot) {
         celebrated = true
