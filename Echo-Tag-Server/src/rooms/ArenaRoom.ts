@@ -92,7 +92,11 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
   private snapshotView = new DataView(this.snapshotBuf)
   private simTick = 0
   private lobbyDeadline = Number.POSITIVE_INFINITY
-  private leaderboardUntil = 0
+  /** Wall-clock time to start the NEXT round, or 0. Set when a round ends and honoured
+   * whatever phase the shared sim has meanwhile moved to — the sim flips Leaderboard→Lobby
+   * at exactly LEADERBOARD_MS, the same instant this fires, so gating the continuation on
+   * "still Leaderboard" is a race the sim can win, stranding a private room in its lobby. */
+  private continueAt = 0
   private scorePatchAcc = 0
   /** Wall-clock time at which an empty room finally disposes. Infinity while occupied.
    * Armed from birth (onCreate): a room whose reservation is never consumed — the client
@@ -343,7 +347,14 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     }
 
     if (w.phase === RoundPhase.Lobby) {
-      if (this.state.humans > 0 && Date.now() >= this.lobbyDeadline) this.startRound()
+      // A round that just ended lands here (sim flipped to Lobby); continueAt drives the
+      // next round. Only a FIRST-round lobby (continueAt === 0) waits on lobbyDeadline.
+      if (this.continueAt !== 0 && Date.now() >= this.continueAt) {
+        this.continueAt = 0
+        this.nextRound()
+      } else if (this.continueAt === 0 && this.state.humans > 0 && Date.now() >= this.lobbyDeadline) {
+        this.startRound()
+      }
       return
     }
 
@@ -355,12 +366,20 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
 
     const ev = stepWorld(w, this.inputs)
     this.simTick++
+    // stepWorld mutates w.phase (it flips Leaderboard→Lobby at LEADERBOARD_MS); read it
+    // through a widened alias so the earlier `phase !== Lobby` narrowing does not apply.
+    const phaseNow = w.phase as RoundPhase
 
     if (ev.roundEnded) {
-      this.leaderboardUntil = Date.now() + LEADERBOARD_MS
+      this.continueAt = Date.now() + LEADERBOARD_MS
       this.syncScores() // the results screen must open with the FINAL scores, not ~1s-stale ones
     }
-    if (w.phase === RoundPhase.Leaderboard && Date.now() >= this.leaderboardUntil) {
+    // Auto-continue with the same group (no return to any menu — a CrazyGames requirement,
+    // and what the offline client does too). Deterministic: the flag, not the live phase,
+    // decides, so the sim's own Leaderboard→Lobby flip at the same tick cannot swallow it.
+    if (this.continueAt !== 0 && Date.now() >= this.continueAt &&
+        (phaseNow === RoundPhase.Leaderboard || phaseNow === RoundPhase.Lobby)) {
+      this.continueAt = 0
       this.nextRound()
       return
     }

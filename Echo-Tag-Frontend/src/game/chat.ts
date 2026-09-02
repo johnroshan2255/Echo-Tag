@@ -188,11 +188,26 @@ export const createChatUi = (opts: {
     submit()
   })
   const onKey = (e: KeyboardEvent): void => {
-    if (e.key === 'Enter') submit()
-    else if (e.key === 'Escape') setOpen(false)
+    // Enter sends AND hands the keys back to the game: with the input still focused, the
+    // next W/A/S/D would type into chat instead of moving (keydown is stopped here so
+    // movement keys never leak into the arena while typing). Enter again reopens it.
+    if (e.key === 'Enter') {
+      submit()
+      setOpen(false)
+    } else if (e.key === 'Escape') setOpen(false)
     e.stopPropagation()
   }
   input.addEventListener('keydown', onKey)
+  // Keyboard players open chat with Enter — no reaching for the mouse mid-chase. Ignored
+  // while any control has focus (a focused button would fire on Enter too).
+  const onGlobalKey = (e: KeyboardEvent): void => {
+    if (e.key !== 'Enter' || open || e.repeat) return
+    const a = document.activeElement
+    if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLButtonElement) return
+    e.preventDefault()
+    setOpen(true)
+  }
+  document.addEventListener('keydown', onGlobalKey)
 
   return {
     push(slot: number, text: string): void {
@@ -217,6 +232,7 @@ export const createChatUi = (opts: {
     },
     destroy(): void {
       document.removeEventListener('pointerdown', onOutsideClick)
+      document.removeEventListener('keydown', onGlobalKey)
       button.remove()
       panel.remove()
     },

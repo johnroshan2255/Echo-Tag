@@ -500,6 +500,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     'display:flex;flex-direction:column;gap:8px;z-index:30;user-select:none;-webkit-user-select:none;'
   for (let n = 0; n < EMOTE_COUNT; n++) {
     const b = document.createElement('button')
+    b.setAttribute('aria-label', `emote ${n + 1}`)
     b.style.cssText = CHIP_STYLE.replace(/width:52px;height:52px/, 'width:44px;height:44px')
     const c = document.createElement('canvas')
     c.width = 28
