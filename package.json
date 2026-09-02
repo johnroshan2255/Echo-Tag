@@ -21,7 +21,7 @@
     "size": "node tools/ci/size-check.mjs",
     "bench:sim": "node tools/bench/sim-bench.ts",
     "clean": "rm -rf */dist */.vite **/*.tsbuildinfo",
-    "test": "node --test \"Echo-Tag-Shared/src/**/*.test.ts\" \"Echo-Tag-Frontend/src/**/*.test.ts\"",
+    "test": "node --test \"Echo-Tag-Shared/src/**/*.test.ts\" \"Echo-Tag-Frontend/src/**/*.test.ts\" \"Echo-Tag-Server/src/**/*.test.ts\"",
     "test:watch": "node --test --watch \"Echo-Tag-Shared/src/**/*.test.ts\"",
     "verify": "npm run typecheck && npm run test && npm run bench:sim",
     "check:browser": "node tools/check/browser-check.ts",

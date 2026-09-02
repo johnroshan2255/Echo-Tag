@@ -69,7 +69,8 @@ import {
   cgOnSettingsChange,
   cgSettings,
   cgUpdateRoom,
-  cgUsername,
+  cgUserToken,
+  type RoomInvite,
 } from '../platform/crazygames.ts'
 import { FOG_COLOR, FOG_MAX_ALPHA, HIDDEN_VISION_SCALE, VISION_CLEAR, VISION_MAX } from './theme.ts'
 import { TG } from '../platform/i18nGame.ts'
@@ -108,6 +109,8 @@ const DEV_TURN_ME = devParams.get('turn') === 'me'
 const DEV_ROUND_S = Number(devParams.get('round') ?? 0)
 
 export interface GameHandle {
+  /** An in-game notice with an OK button (boot uses it when a friend's invite cannot be followed). */
+  alert(msg: string): void
   destroy(): void
 }
 
@@ -174,19 +177,31 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   const emoteState = createEmoteState()
 
   // ── World: local simulation, or a mirror of the server's ──
-  // The CrazyGames username (when signed in there) rides along so friends recognise each
-  // other in the lobby and chat; everywhere else players stay their colour.
-  const username = mode.kind === 'bots' ? null : await cgUsername()
-  const net = mode.kind === 'bots' ? null : await (await import('./net/room.ts')).connect(
-    mode.kind === 'quick'
-      ? { kind: 'quick' }
-      : mode.kind === 'host'
-        ? { kind: 'host', code: (await import('./net/room.ts')).makeCode() }
-        : mode.kind === 'id'
-          ? { kind: 'id', roomId: mode.roomId }
-          : { kind: 'code', code: mode.code },
-    username ?? '',
-  )
+  // The CrazyGames user token (when signed in there) rides along; the SERVER verifies it
+  // and shows the username so friends recognise each other. Everywhere else, colours.
+  const cgToken = mode.kind === 'bots' ? null : await cgUserToken()
+  let net: import('./net/room.ts').NetGame | null = null
+  if (mode.kind !== 'bots') {
+    try {
+      const { connect, makeCode } = await import('./net/room.ts')
+      net = await connect(
+        mode.kind === 'quick'
+          ? { kind: 'quick' }
+          : mode.kind === 'host'
+            ? { kind: 'host', code: makeCode() }
+            : mode.kind === 'id'
+              ? { kind: 'id', roomId: mode.roomId }
+              : { kind: 'code', code: mode.code },
+        cgToken ?? '',
+      )
+    } catch (err) {
+      // A failed join must not leak what was built ahead of it: browsers cap live
+      // AudioContexts, and a CrazyGames invite that misses can be retried many times.
+      audio.destroy()
+      renderer.destroy()
+      throw err
+    }
+  }
 
   let mapIndex = DEV_MAP >= 0 ? DEV_MAP : ((mode.kind === 'bots' || mode.kind === 'host') && mode.mapIndex !== undefined) ? mode.mapIndex : 0
   const world: World = net ? net.world : createWorld(0xec07a6, mapIndex)
@@ -388,8 +403,16 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   document.body.appendChild(muteBtn)
 
   // ── Modals: simple custom DOM dialogs ──
+  // Every open modal, so destroy() can take them down with the session — a stale "host
+  // left" sheet must not outlive a room switch and swallow the next room's input.
+  const overlays = new Set<HTMLElement>()
   const showModal = (msg: string, isConfirm: boolean, onConfirm: () => void): void => {
     const overlay = document.createElement('div')
+    overlays.add(overlay)
+    const close = (): void => {
+      overlays.delete(overlay)
+      overlay.remove()
+    }
     overlay.style.cssText =
       'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:100;display:grid;place-content:center;padding:20px;'
     
@@ -415,7 +438,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       cancelBtn.className = 'px-s bv'
       cancelBtn.textContent = TG.cancel
       cancelBtn.style.cssText = btnStyle + 'background:#262048;color:#e9ddff;'
-      cancelBtn.addEventListener('click', () => overlay.remove())
+      cancelBtn.addEventListener('click', close)
       // Active state styling simulation
       cancelBtn.addEventListener('pointerdown', () => { cancelBtn.style.transform = 'translate(2px,2px)' })
       cancelBtn.addEventListener('pointerup', () => { cancelBtn.style.transform = 'none' })
@@ -427,7 +450,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     okBtn.textContent = isConfirm ? TG.leave : TG.ok
     okBtn.style.cssText = btnStyle + 'background:#ffc07a;color:#241505;border-color:#d49b5f;'
     okBtn.addEventListener('click', () => {
-      overlay.remove()
+      close()
       onConfirm()
     })
     okBtn.addEventListener('pointerdown', () => { okBtn.style.transform = 'translate(2px,2px)' })
@@ -457,7 +480,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     e.preventDefault()
     e.stopPropagation()
     showModal(TG.leaveConfirm, true, () => {
-      cgLeftRoom()
+      cgLeftRoom(myInv)
       net?.destroy()
       location.search = ''
     })
@@ -526,6 +549,25 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   let lobbyUi: import('./net/lobbyUi.ts').LobbyUi | null = null
   let chatUi: import('./chat.ts').ChatUi | null = null
   let cleanupNet: (() => void) | null = null
+  /** The room CrazyGames was last told about by THIS session (see cgLeftRoom). */
+  let myInv: RoomInvite | null = null
+  // Chat is gated twice: a build flag (Poki requires prior approval for any chat/UGC, so the
+  // Poki package builds with VITE_CHAT=off — docs/POKI_DEPLOY.md) and, live, the CrazyGames
+  // player's own chat setting, which can flip mid-session. One mount path, re-checked after
+  // the chunk import, so a disable arriving during the load wins.
+  const chatBuilt = (import.meta as { env?: Record<string, string> }).env?.VITE_CHAT !== 'off'
+  const mountChat = async (): Promise<void> => {
+    if (!net || !chatBuilt || chatUi || cgSettings().disableChat) return
+    const { createChatUi } = await import('./chat.ts')
+    if (chatUi || cgSettings().disableChat) return // settings flipped during the import
+    chatUi = createChatUi({
+      send: (t) => net.sendChat(t),
+      colorSlotOf: (slot) => world.colorSlot[slot]!,
+      colorOf: (c) => PLAYER_COLORS[c % PLAYER_COLORS.length]!,
+      mySlot: () => mySlot,
+      nameOf: (slot) => net.nameOf(slot),
+    })
+  }
   if (net) {
     const { createLobbyUi } = await import('./net/lobbyUi.ts')
     lobbyUi = createLobbyUi(
@@ -542,22 +584,6 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     if (mode.kind === 'host' && mode.mapIndex !== undefined && mode.mapIndex !== 0) {
       net.setMapIndex(mode.mapIndex)
     }
-    // Chat is gated twice: a build flag (Poki requires prior approval for any chat/UGC,
-    // so the Poki package builds with VITE_CHAT=off — docs/POKI_DEPLOY.md) and, live, the
-    // CrazyGames player's own chat setting, which can flip mid-session.
-    const chatBuilt = (import.meta as { env?: Record<string, string> }).env?.VITE_CHAT !== 'off'
-    const mountChat = async (): Promise<void> => {
-      if (!chatBuilt || chatUi || cgSettings().disableChat) return
-      const { createChatUi } = await import('./chat.ts')
-      if (chatUi || cgSettings().disableChat) return // settings flipped during the import
-      chatUi = createChatUi({
-        send: (t) => net.sendChat(t),
-        colorSlotOf: (slot) => world.colorSlot[slot]!,
-        colorOf: (c) => PLAYER_COLORS[c % PLAYER_COLORS.length]!,
-        mySlot: () => mySlot,
-        nameOf: (slot) => net.nameOf(slot),
-      })
-    }
     await mountChat()
     net.onChat((slot, text) => chatUi?.push(slot, text))
     net.onEmote((slot, n) => triggerEmote(emoteState, slot, n, performance.now()))
@@ -567,7 +593,8 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     let celebrated = false
     net.onLobby((view) => {
       lobbyUi!.update(view)
-      cgUpdateRoom(view.code !== '' ? { room: view.code } : { rid: net.roomId }, view.humans < MAX_PLAYERS)
+      myInv = view.code !== '' ? { room: view.code } : { rid: net.roomId }
+      cgUpdateRoom(myInv, view.humans < MAX_PLAYERS)
       if (view.phase !== RoundPhase.Leaderboard) celebrated = false
       else if (!celebrated && view.scores.length > 1 && view.scores[0]!.slot === net.mySlot) {
         celebrated = true
@@ -581,8 +608,16 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     net.onHazard(onHazardCaught)
     net.onPortal(onPortalUsed)
     net.onHostLeft(() => {
-      cgLeftRoom()
+      cgLeftRoom(myInv)
       showModal(TG.hostLeft, false, () => {
+        location.search = ''
+      })
+    })
+    // Dropped by the server or the network: stop advertising the room, tell the player.
+    net.onLeave(() => {
+      cgLeftRoom(myInv)
+      portalGameplayStop()
+      showModal(TG.disconnected, false, () => {
         location.search = ''
       })
     })
@@ -614,7 +649,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
     }, 300)
     cleanupNet = () => {
       clearInterval(watchPhase)
-      cgLeftRoom()
+      cgLeftRoom(myInv)
     }
     net.onRoundSetup(() => {
       mySlot = net.mySlot
@@ -630,25 +665,14 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   }
 
   // CrazyGames settings can change mid-session (their player's mute and chat toggles).
-  cgOnSettingsChange((s) => {
+  const offSettings = cgOnSettingsChange((s) => {
     portalMuted = s.muteAudio === true
     applyMute()
     if (s.disableChat) {
       chatUi?.destroy()
       chatUi = null
-    } else if (net) {
-      void (async () => {
-        if (chatUi || (import.meta as { env?: Record<string, string> }).env?.VITE_CHAT === 'off') return
-        const { createChatUi } = await import('./chat.ts')
-        if (chatUi) return
-        chatUi = createChatUi({
-          send: (t) => net.sendChat(t),
-          colorSlotOf: (slot) => world.colorSlot[slot]!,
-          colorOf: (c) => PLAYER_COLORS[c % PLAYER_COLORS.length]!,
-          mySlot: () => mySlot,
-          nameOf: (slot) => net.nameOf(slot),
-        })
-      })()
+    } else {
+      void mountChat()
     }
   })
 
@@ -918,7 +942,13 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
   })
 
   return {
+    alert(msg: string): void {
+      showModal(msg, false, () => {})
+    },
     destroy(): void {
+      portalGameplayStop() // the platform's play session ends with the game session
+      for (const o of overlays) o.remove()
+      overlays.clear()
       cancelAnimationFrame(raf)
       clearTimeout(settleTimer)
       removeEventListener('resize', relayoutSettled)
@@ -936,6 +966,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       keyboard.destroy()
       joystick.destroy()
       audio.destroy()
+      offSettings()
       cleanupNet?.()
       lobbyUi?.destroy()
       chatUi?.destroy()

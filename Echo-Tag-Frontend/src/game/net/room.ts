@@ -99,6 +99,8 @@ export interface NetGame {
   onPortal(cb: (slot: number) => void): void
   onRoundSetup(cb: () => void): void
   onHostLeft(cb: () => void): void
+  /** The connection ended without us asking (server restart, network loss, kicked). */
+  onLeave(cb: (code: number) => void): void
   start(): void
   destroy(): void
 }
@@ -118,23 +120,25 @@ export const makeCode = (): string => {
   return code
 }
 
-export const connect = async (mode: JoinMode, name = ''): Promise<NetGame> => {
+/** `cgToken`: the CrazyGames user token; the server verifies it and derives the name. */
+export const connect = async (mode: JoinMode, cgToken = ''): Promise<NetGame> => {
   const client = new Client(wsOrigin())
   let room: Room
   const code = mode.kind === 'quick' || mode.kind === 'id' ? '' : mode.code
-  if (mode.kind === 'quick') room = await client.joinOrCreate('arena', { code: '', name })
-  else if (mode.kind === 'id') room = await client.joinById(mode.roomId, { code: '', name })
-  else if (mode.kind === 'host') room = await client.create('arena', { code, name })
-  else room = await client.join('arena', { code, name })
+  const opts = cgToken ? { code, cgToken } : { code }
+  if (mode.kind === 'quick') room = await client.joinOrCreate('arena', opts)
+  else if (mode.kind === 'id') room = await client.joinById(mode.roomId, opts)
+  else if (mode.kind === 'host') room = await client.create('arena', opts)
+  else room = await client.join('arena', opts)
 
   // The room code lives in the URL, so a refresh rejoins the same room and keeps playing.
-  // Quick-match rooms have no code and stay unaddressable, exactly as before.
-  if (code !== '') {
-    try {
-      history.replaceState(null, '', `?room=${code}`)
-    } catch {
-      /* embedded contexts may forbid history access; the game works without it */
-    }
+  // Quick-match rooms have no code: a stale ?room= from an earlier private room must go,
+  // or a refresh would drop the player back into the room they just left.
+  try {
+    if (code !== '') history.replaceState(null, '', `?room=${code}`)
+    else if (new URLSearchParams(location.search).has('room')) history.replaceState(null, '', location.pathname)
+  } catch {
+    /* embedded contexts may forbid history access; the game works without it */
   }
 
   const world = createWorld(0, 0)
@@ -163,6 +167,8 @@ export const connect = async (mode: JoinMode, name = ''): Promise<NetGame> => {
   let chatCb: ((slot: number, text: string) => void) | null = null
   let emoteCb: ((slot: number, n: number) => void) | null = null
   let hostLeftCb: (() => void) | null = null
+  let leaveCb: ((code: number) => void) | null = null
+  let leaving = false // set by destroy(): the leave we asked for is not an event
   let lastLobbyView: LobbyView | null = null
   const names: string[] = new Array<string>(MAX_PLAYERS).fill('')
   let prevIt = NO_SLOT
@@ -179,6 +185,10 @@ export const connect = async (mode: JoinMode, name = ''): Promise<NetGame> => {
 
   room.onMessage(MSG.HostLeft, () => {
     hostLeftCb?.()
+  })
+
+  room.onLeave((code) => {
+    if (!leaving) leaveCb?.(code)
   })
 
   const applyKeys = (mask: number): void => {
@@ -570,10 +580,14 @@ export const connect = async (mode: JoinMode, name = ''): Promise<NetGame> => {
     onHostLeft(cb): void {
       hostLeftCb = cb
     },
+    onLeave(cb): void {
+      leaveCb = cb
+    },
     start(): void {
       room.send(MSG.Go)
     },
     destroy(): void {
+      leaving = true
       void room.leave()
     },
   }

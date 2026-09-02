@@ -12,7 +12,9 @@
  * Run after `npm run build`:  npm run check:cg
  */
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createSign, generateKeyPairSync } from 'node:crypto'
 import { chromium, type Browser, type Page } from 'playwright'
+import { Client } from '@colyseus/sdk'
 
 const WEB_PORT = 4188
 const WS_PORT = 2598
@@ -42,13 +44,26 @@ interface StubCfg {
   instant?: boolean
   invite?: Record<string, string> | null
   settings?: { muteAudio?: boolean; disableChat?: boolean }
+  /** Signed-in user: the stub hands out a JWT for this name, signed with the check's own key. */
   user?: { username: string } | null
 }
 
+// The server derives usernames from VERIFIED CrazyGames tokens only. The check signs its
+// own RS256 tokens and hands the server the matching public key (CG_JWT_PUBLIC_KEY).
+const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+const PUBLIC_PEM = publicKey.export({ type: 'pkcs1', format: 'pem' }) as string
+const b64 = (o: unknown): string => Buffer.from(JSON.stringify(o)).toString('base64url')
+const tokenFor = (username: string, exp = Math.floor(Date.now() / 1000) + 3600): string => {
+  const body = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ userId: `id-${username}`, gameId: 'echo-tag', username, profilePictureUrl: '', iat: exp - 3600, exp })}`
+  const sg = createSign('RSA-SHA256')
+  sg.update(body)
+  return `${body}.${sg.sign(privateKey).toString('base64url')}`
+}
+
 /** Installs window.CrazyGames.SDK before any game script runs; records every call. */
-const stubSdk = (cfg: StubCfg): string => `
+const stubSdk = (cfg: StubCfg, token: string | null): string => `
   (() => {
-    const cfg = ${JSON.stringify(cfg)};
+    const cfg = ${JSON.stringify(cfg)}; const token = ${JSON.stringify(token)};
     const calls = []; const settingsCbs = []; const joinCbs = [];
     const rec = (n) => (...a) => { calls.push([n, ...a]) };
     globalThis.__cg = { calls };
@@ -70,9 +85,11 @@ const stubSdk = (cfg: StubCfg): string => `
         getInviteParam: (k) => (cfg.invite ?? {})[k] ?? null,
         settings: cfg.settings ?? {},
         addSettingsChangeListener: (cb) => settingsCbs.push(cb),
+        removeSettingsChangeListener: (cb) => { const i = settingsCbs.indexOf(cb); if (i >= 0) settingsCbs.splice(i, 1) },
       },
       ad: { requestAd: (t, cb) => { calls.push(['requestAd', t]); cb.adStarted?.(); setTimeout(() => cb.adFinished?.(), 30) } },
-      user: { isUserAccountAvailable: true, getUser: async () => cfg.user ?? null },
+      user: { isUserAccountAvailable: true, getUser: async () => cfg.user ?? null,
+        getUserToken: async () => { if (!token) throw new Error('userNotAuthenticated'); return token } },
     } };
     globalThis.__wsOverride = 'ws://127.0.0.1:${WS_PORT}';
   })();
@@ -96,7 +113,7 @@ let browser: Browser | undefined
 
 try {
   server = spawn(process.execPath, ['Echo-Tag-Server/src/index.ts'], {
-    env: { ...process.env, PORT: String(WS_PORT) },
+    env: { ...process.env, PORT: String(WS_PORT), CG_JWT_PUBLIC_KEY: PUBLIC_PEM },
     stdio: 'ignore',
   })
   preview = spawn('npx', ['vite', 'preview', '--port', String(WEB_PORT), '--strictPort', '--host', '127.0.0.1'], {
@@ -116,9 +133,10 @@ try {
       // The dev build still carries the Poki tag, whose SDK grumbles off-domain; that noise
       // and the http-only COOP notice are not ours.
       const t = m.text()
-      if (m.type() === 'error' && !/poki|Cross-Origin-Opener-Policy|ERR_FAILED/.test(t)) console.log(`    [console.error] ${t.slice(0, 300)}`)
+      // (521 is the matchmaker refusing the deliberately stale invite below.)
+      if (m.type() === 'error' && !/poki|Cross-Origin-Opener-Policy|ERR_FAILED|status of 521/.test(t)) console.log(`    [console.error] ${t.slice(0, 300)}`)
     })
-    await page.addInitScript(stubSdk(cfg))
+    await page.addInitScript(stubSdk(cfg, cfg.user ? tokenFor(cfg.user.username) : null))
     await page.goto(URL)
     await page.waitForFunction(() => document.documentElement.dataset.boot === 'ready')
     return page
@@ -173,13 +191,70 @@ try {
     ;(globalThis as { __marker?: number }).__marker = 42 // survives only if the page does not reload
   })
   await C.evaluate((code) => (globalThis as { __cgFire: { join(p: unknown): void } }).__cgFire.join({ room: code }), codeA)
-  await C.waitForFunction((code) => document.querySelector('#lobby-code b')?.textContent === code, codeA, { timeout: 30_000 })
-  await settle(C)
+  // Poll with a state dump on failure: a stall here has been intermittent, and the dump
+  // (marker, lobby codes, canvases, last SDK calls) is what tells the two causes apart.
+  let switched = false
+  for (let i = 0; i < 30 && !switched; i++) {
+    await settle(C, 1000)
+    switched = (await C.evaluate(() => document.querySelector('#lobby-code b')?.textContent)) === codeA
+  }
+  if (!switched) {
+    const st = await C.evaluate(() => ({
+      game: document.documentElement.dataset.game,
+      marker: (globalThis as { __marker?: number }).__marker,
+      codes: [...document.querySelectorAll('#lobby-code b')].map((e) => e.textContent),
+      stages: document.querySelectorAll('#stage').length,
+      lobbies: document.querySelectorAll('#lobby').length,
+      url: location.search,
+    }))
+    console.log('    state:', JSON.stringify(st), 'last calls:', JSON.stringify((await calls(C)).slice(-4)))
+  }
+  ok(switched, 'join listener moved the player into the invited room')
   ok((await C.evaluate(() => (globalThis as { __marker?: number }).__marker)) === 42, 'join listener switched rooms WITHOUT a page reload')
   cc = await calls(C)
-  ok(has(cc, 'leftRoom'), 'leftRoom() fired for the room being left')
-  ok(lastRoom(cc)?.roomId === codeA, 'updateRoom now reports the new room')
+  const roomCalls = cc.filter((c) => c[0] === 'updateRoom' || c[0] === 'leftRoom')
+  ok(roomCalls.at(-1)?.[0] === 'updateRoom' && lastRoom(cc)?.roomId === codeA, 'updateRoom reports the new room, and the old session did not un-report it afterwards')
   ok((await rosterNames(A)).includes('LateFriend_3'), "host's roster shows the late friend")
+  // The dead session's settings listener must be gone: toggling now must affect only the
+  // live session (chat off → on again), with no errors from the torn-down one.
+  await C.evaluate(() => (globalThis as { __cgFire: { settings(s: unknown): void } }).__cgFire.settings({ disableChat: true }))
+  await settle(C, 300)
+  ok((await C.$('#chat-btn')) === null, 'after the switch, settings.disableChat still reaches the live session')
+  await C.evaluate(() => (globalThis as { __cgFire: { settings(s: unknown): void } }).__cgFire.settings({ disableChat: false }))
+  await settle(C, 600)
+  ok((await C.$$('#chat-btn')).length === 1, 'exactly one chat UI after re-enable (no zombie session listener)')
+  ok((await C.evaluate(() => location.search)) === `?room=${codeA}`, 'URL now carries the new room code (stale ?room cleared/replaced)')
+
+  // ── stale invite: the switch fails, the current session survives with a notice ──
+  console.log('failed invite keeps the current session')
+  await C.evaluate(() => (globalThis as { __cgFire: { join(p: unknown): void } }).__cgFire.join({ room: 'ZZZZQ' }))
+  await settle(C, 2500)
+  ok((await C.evaluate(() => (globalThis as { __marker?: number }).__marker)) === 42, 'no reload on a failed invite')
+  ok((await lobbyCode(C)) === codeA, 'still in the previous room')
+  ok((await C.evaluate(() => [...document.querySelectorAll('p')].some((p) => /no room|room is full/i.test(p.textContent ?? '')))), 'in-game notice shown for the bad invite')
+  await C.click('button.bv-a:has-text("OK")')
+
+  // ── server: private rooms reject id-joins without the code; names need a valid token ──
+  console.log('server guards')
+  const nodeClient = new Client(`ws://127.0.0.1:${WS_PORT}`)
+  const priv = await nodeClient.create('arena', { code: 'QWERT' })
+  let intruder: unknown = null
+  try {
+    await nodeClient.joinById(priv.roomId, { code: '' })
+    intruder = 'joined'
+  } catch (e) {
+    intruder = e
+  }
+  ok(intruder !== 'joined', 'joinById into a private room without its code is refused')
+  const forged = tokenFor('Impostor').replace(/\.[^.]+$/, '.AAAA') // signature stripped
+  const spoof = await nodeClient.joinOrCreate('arena', { code: '', cgToken: forged })
+  await new Promise((r) => setTimeout(r, 400))
+  const spoofName = (spoof.state as unknown as { players: { get(k: string): { name: string } | undefined } }).players.get(spoof.sessionId)?.name
+  ok(spoofName === '', 'a forged token yields no username')
+  const expired = await nodeClient.joinOrCreate('arena', { code: '', cgToken: tokenFor('OldToken', Math.floor(Date.now() / 1000) - 10) })
+  await new Promise((r) => setTimeout(r, 400))
+  ok((expired.state as unknown as { players: { get(k: string): { name: string } | undefined } }).players.get(expired.sessionId)?.name === '', 'an expired token yields no username')
+  await Promise.all([priv.leave(), spoof.leave(), expired.leave()])
 
   // ── gameplay: host starts, first input fires gameplayStart ──
   console.log('gameplay events')

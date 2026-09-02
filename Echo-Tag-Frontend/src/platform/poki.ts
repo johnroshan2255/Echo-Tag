@@ -27,6 +27,9 @@ let gameplayActive = false
 
 /** Resolves once the SDK is initialised, or after a short wait when it never shows up. */
 export const pokiInit = async (): Promise<void> => {
+  // No script tag, no SDK coming: bail at once rather than holding the portal init (and
+  // everything sequenced behind it) for the full poll window.
+  if (!document.querySelector('script[src*="poki-sdk"]')) return
   for (let i = 0; i < 30 && !sdk(); i++) {
     await new Promise((r) => setTimeout(r, 150))
   }

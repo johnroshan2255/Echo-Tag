@@ -13,16 +13,16 @@ refuses to run off crazygames.com/localhost).
 
 | Requirement | Where |
 |---|---|
-| `init()` first, `loadingStart/Stop` around the load | `platform/crazygames.ts` (`cgInit`), called from `boot/main.ts` via `platform/portal.ts` |
+| `init()` first, `loadingStart/Stop` around the load | `platform/crazygames.ts` (`cgInit`), called from `boot/main.ts` on its own — never sequenced behind the Poki init |
 | `gameplayStart()` on play, `gameplayStop()` on pause / round end / tab hidden / ad | `game/index.ts` (`portalGameplayStart/Stop`), same call sites as Poki's |
 | Midgame ad between rounds, audio muted for its duration | `portalAdBreak` → `cgMidgameAd` (`ad.requestAd('midgame')`) |
 | `happytime()` | fired when the local player wins a round |
 | **updateRoom / leftRoom** | `net.onLobby` in `game/index.ts`: private rooms by 5-letter code (`inviteParams.room`), quick-match rooms by Colyseus id (`inviteParams.rid`); `isJoinable = humans < 12`; deduped in the facade; `leftRoom()` on leave, host-left and session teardown |
 | **Invite params at load** | `boot/main.ts`: `cgInviteAtLoad()` → starts `{kind:'code'}` or `{kind:'id'}` before the menu is used |
-| **Join listener while playing** | `boot/main.ts` `switchRoom()`: destroys the session and boots a new one on a fresh canvas — no page reload (their requirement) |
+| **Join listener while playing** | `boot/main.ts` `switchRoom()`: boots the next session on a second canvas while the current one keeps running, then retires the old one — no page reload (their requirement); a stale/full invite leaves the player where they were with a notice. `room.onLeave` (server/network drop) also clears the CrazyGames room presence |
 | **isInstantMultiplayer** | `boot/main.ts`: party leader is dropped straight into a hosted private room (joinable, code shown) |
 | **Invite link** | lobby's COPY INVITE LINK uses `game.inviteLink({room})` when the SDK is live, else `?room=CODE` |
-| **Usernames in-game** | `user.getUser().username` rides the join options; server sanitises to `[A-Za-z0-9_.]`, ≤20 chars, profanity-masked (`ArenaRoom.cleanName`), synced in `PlayerMeta.name`; shown in the lobby roster, results and chat |
+| **Usernames in-game** | the client sends `user.getUserToken()` (a 1h RS256 JWT); the server verifies it against CrazyGames' published key (`Echo-Tag-Server/src/auth/cgToken.ts`) and takes the username from the claims — a client can never name itself. Then `[A-Za-z0-9_.]`, ≤20 chars, profanity-masked; synced in `PlayerMeta.name`; shown in the lobby roster, results and chat |
 | `settings.muteAudio` / `settings.disableChat`, live | `cgOnSettingsChange` in `game/index.ts` (third mute gate; chat UI mounted/unmounted) and `boot/main.ts` (menu audio) |
 | Chat moderation (mandatory minimum: profanity filter) | server-side on every relay, `Echo-Tag-Shared/src/chat/profanity.ts` |
 | Round-based continuation | private rooms return to their lobby after the results screen — nobody goes back to the CrazyGames UI |
@@ -39,8 +39,13 @@ refuses to run off crazygames.com/localhost).
 
 ## Server
 
+Private rooms re-check the room code on every join (`ArenaRoom.onJoin`): the matchmaker's
+pool filter only guards `join`/`joinOrCreate`, and `joinById` — how a friend follows a
+public-room invite — would otherwise reach any room whose id leaked.
+
 The server must carry the `name` field (`Echo-Tag-Server/src/rooms/state/ArenaState.ts`)
-for usernames to appear. Railway redeploys from `main`; merging this branch (or pointing
+and the token verifier for usernames to appear. `CG_JWT_PUBLIC_KEY` (PEM) overrides the
+fetched key — only the e2e check sets it. Railway redeploys from `main`; merging this branch (or pointing
 the Railway service at `crazygames`) ships it. Until then the client simply shows colours,
 exactly as before — nothing breaks against the older server.
 

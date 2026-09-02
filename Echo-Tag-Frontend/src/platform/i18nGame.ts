@@ -38,6 +38,7 @@ const EN = {
   cancel: 'CANCEL',
   ok: 'OK',
   hostLeft: 'The host has left the game.',
+  disconnected: 'Connection to the game server was lost.',
   chatTitle: 'ROOM CHAT',
   chatHint: 'say something — nothing here is saved.',
   bannerCaught: 'CAUGHT! STRUGGLE!',

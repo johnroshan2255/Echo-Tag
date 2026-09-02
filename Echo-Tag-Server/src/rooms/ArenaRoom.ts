@@ -35,6 +35,7 @@ import {
 } from '@echo-tag/shared'
 import { createDriverState } from '@echo-tag/shared/ai'
 import { env } from '../config/env.ts'
+import { usernameFromToken } from '../auth/cgToken.ts'
 import { createArenaState, createPlayerMeta, type ArenaStateT } from './state/ArenaState.ts'
 
 /**
@@ -57,13 +58,13 @@ import { createArenaState, createPlayerMeta, type ArenaStateT } from './state/Ar
 
 interface JoinOptions {
   code?: string
-  /** Portal username (CrazyGames: 6-20 chars of [A-Za-z0-9_.]). Anything else is dropped. */
-  name?: string
+  /** CrazyGames user token (SDK.user.getUserToken()). The display name comes from its
+   * VERIFIED claims — a client-chosen name is never accepted (auth/cgToken.ts). */
+  cgToken?: string
 }
 
-/** Usernames are shown to strangers: whitelist the charset, cap the length, mask profanity. */
-const cleanName = (raw: unknown): string =>
-  typeof raw === 'string' ? filterProfanity(raw.replace(/[^A-Za-z0-9_.]/g, '').slice(0, 20)) : ''
+/** Even a verified username is shown to strangers: whitelist the charset, cap, mask profanity. */
+const cleanName = (raw: string): string => filterProfanity(raw.replace(/[^A-Za-z0-9_.]/g, '').slice(0, 20))
 
 const isBotFill = (w: World, slot: number): boolean => w.isBot[slot] === 1
 
@@ -98,8 +99,13 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
    * dropped mid-handshake, or onJoin threw — has no onLeave to arm it, and with
    * autoDispose off it would otherwise tick at 20Hz forever. onJoin lifts it. */
   private emptyAt = Date.now() + EMPTY_ROOM_GRACE_MS
+  /** The pool key this room was created in ('' = public). Re-checked on EVERY join: the
+   * matchmaker's filterBy only guards join/joinOrCreate, while joinById (a CrazyGames
+   * friend following a public-room invite) reaches any room whose id you know. */
+  private code = ''
 
   override onCreate(options: JoinOptions): void {
+    this.code = typeof options.code === 'string' ? options.code : ''
     this.state.isPrivate = Boolean(options.code)
     // NOT setPrivate(): that hides the room from ALL matchmaking, including friends joining
     // by code. Privacy here comes from filterBy(['code']) pool separation — quick-match
@@ -228,7 +234,11 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     this.setSimulationInterval(() => this.tick(), TICK_MS)
   }
 
-  override onJoin(client: Client, options: JoinOptions): void {
+  override async onJoin(client: Client, options: JoinOptions): Promise<void> {
+    // A private room admits only clients carrying its code, whatever route they took in.
+    if ((typeof options?.code === 'string' ? options.code : '') !== this.code) throw new Error('wrong room')
+    // The name comes from the verified CrazyGames token or not at all (see JoinOptions).
+    const name = cleanName(await usernameFromToken(options?.cgToken))
     // Reclaim a bot seat if the room is full of fill; humans always outrank bots.
     let slot = addPlayer(this.world, false)
     if (slot < 0) {
@@ -249,7 +259,7 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     this.lastHumanInput[slot] = 0
     this.lastSeq[slot] = 0
 
-    this.state.players.set(client.sessionId, createPlayerMeta(slot, this.world.colorSlot[slot]!, false, cleanName(options?.name)))
+    this.state.players.set(client.sessionId, createPlayerMeta(slot, this.world.colorSlot[slot]!, false, name))
     this.state.humans++
     if (this.state.hostId === '') this.state.hostId = client.sessionId
 

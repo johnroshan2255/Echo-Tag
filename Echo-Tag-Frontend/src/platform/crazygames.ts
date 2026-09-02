@@ -39,6 +39,7 @@ interface CGSdk {
     addJoinRoomListener(cb: (params: Params) => void): void
     settings: CGSettings
     addSettingsChangeListener(cb: (s: CGSettings) => void): void
+    removeSettingsChangeListener(cb: (s: CGSettings) => void): void
   }
   ad: {
     requestAd(type: 'midgame' | 'rewarded', cb: { adStarted?(): void; adFinished?(): void; adError?(e: unknown): void }): void
@@ -46,6 +47,7 @@ interface CGSdk {
   user: {
     isUserAccountAvailable: boolean
     getUser(): Promise<{ username: string } | null>
+    getUserToken(): Promise<string>
   }
 }
 
@@ -53,7 +55,9 @@ const raw = (): CGSdk | undefined => (globalThis as { CrazyGames?: { SDK?: CGSdk
 
 let live: CGSdk | null = null
 let gameplayActive = false
-let lastRoomKey = ''
+/** The room CrazyGames currently believes we are in ('' = none) and its joinable flag. */
+let currentRoomId = ''
+let currentJoinable: boolean | null = null
 
 /** True once init succeeded on a domain where the SDK actually works. */
 export const cgActive = (): boolean => live !== null
@@ -63,6 +67,9 @@ export const cgActive = (): boolean => live !== null
  * refuses this domain. Safe to call once per page.
  */
 export const cgInit = async (): Promise<void> => {
+  // No script tag (Poki/web builds): nothing is coming — return at once so the portal
+  // init, and the instant-multiplayer start sequenced behind it, are not held up.
+  if (!document.querySelector('script[src*="crazygames-sdk"]')) return
   for (let i = 0; i < 30 && !raw(); i++) await new Promise((r) => setTimeout(r, 150))
   const sdk = raw()
   if (!sdk) return
@@ -132,23 +139,30 @@ export const cgMidgameAd = (mute: () => void, unmute: () => void): Promise<void>
 export type RoomInvite = { room: string } | { rid: string }
 
 const inviteParams = (inv: RoomInvite): Params => ('room' in inv ? { room: inv.room } : { rid: inv.rid })
+const roomIdOf = (inv: RoomInvite): string => ('room' in inv ? inv.room : inv.rid)
 
 /**
  * Tells CrazyGames where this player is and whether a friend can follow. Deduped: the
  * lobby view arrives many times a second while nothing relevant changes.
  */
 export const cgUpdateRoom = (inv: RoomInvite, joinable: boolean): void => {
-  const key = `${'room' in inv ? inv.room : inv.rid}|${joinable}`
-  if (key === lastRoomKey) return
-  lastRoomKey = key
-  call((s) =>
-    s.game.updateRoom({ roomId: 'room' in inv ? inv.room : inv.rid, isJoinable: joinable, inviteParams: inviteParams(inv) }),
-  )
+  const id = roomIdOf(inv)
+  if (id === currentRoomId && joinable === currentJoinable) return
+  currentRoomId = id
+  currentJoinable = joinable
+  call((s) => s.game.updateRoom({ roomId: id, isJoinable: joinable, inviteParams: inviteParams(inv) }))
 }
 
-export const cgLeftRoom = (): void => {
-  if (lastRoomKey === '') return
-  lastRoomKey = ''
+/**
+ * We left a room. A session passes the room IT was in: during an in-place room switch the
+ * old session is torn down after the new one has already reported its room, and must not
+ * un-report it.
+ */
+export const cgLeftRoom = (inv?: RoomInvite | null): void => {
+  if (currentRoomId === '') return
+  if (inv && roomIdOf(inv) !== currentRoomId) return
+  currentRoomId = ''
+  currentJoinable = null
   call((s) => s.game.leftRoom())
 }
 
@@ -210,17 +224,34 @@ export const cgSettings = (): CGSettings => {
   }
 }
 
-export const cgOnSettingsChange = (cb: (s: CGSettings) => void): void =>
-  call((s) => s.game.addSettingsChangeListener((n) => cb(n ?? {})))
+/**
+ * Returns the unsubscribe — a game session must drop its listener when it is torn down
+ * (the join listener swaps sessions without a page reload). One SDK listener is registered
+ * lazily and fans out to a local set, so unsubscribing never depends on the SDK's API.
+ */
+const settingsCbs = new Set<(s: CGSettings) => void>()
+let settingsHooked = false
+export const cgOnSettingsChange = (cb: (s: CGSettings) => void): (() => void) => {
+  if (!settingsHooked && live) {
+    settingsHooked = true
+    call((s) => s.game.addSettingsChangeListener((n) => settingsCbs.forEach((f) => f(n ?? {}))))
+  }
+  settingsCbs.add(cb)
+  return () => void settingsCbs.delete(cb)
+}
 
-/** The signed-in CrazyGames username, or null (not signed in, accounts off, no SDK). */
-export const cgUsername = async (): Promise<string | null> => {
+/**
+ * The signed-in player's user token (a 1h JWT), or null. The SERVER verifies it and takes
+ * the username from the claims — the client never names itself (auth/cgToken.ts).
+ * Bounded: this sits on the path to the room connect, and a name is nice-to-have.
+ */
+export const cgUserToken = async (): Promise<string | null> => {
   if (!live) return null
   try {
     if (!live.user.isUserAccountAvailable) return null
-    const u = await live.user.getUser()
-    return u?.username ?? null
+    const t = await Promise.race([live.user.getUserToken(), new Promise<null>((r) => setTimeout(() => r(null), 1500))])
+    return typeof t === 'string' && t.length > 0 ? t : null
   } catch {
-    return null
+    return null // not signed in (the SDK rejects), or accounts unavailable
   }
 }

@@ -1,9 +1,12 @@
 import { animatePreview, drawPreview } from './preview.ts'
 import { armMenuAudio, menuThunder, stopMenuAudio } from './menuAudio.ts'
-import { portalInit, portalLoadingFinished, underPortal } from '../platform/portal.ts'
+import { underPortal } from '../platform/portal.ts'
+import { pokiInit, pokiLoadingFinished } from '../platform/poki.ts'
 import {
+  cgInit,
   cgInstantMultiplayer,
   cgInviteAtLoad,
+  cgLoadingFinished,
   cgOnJoinRoom,
   cgOnSettingsChange,
   cgSettings,
@@ -242,6 +245,8 @@ updateBmap()
 let starting = false
 /** The running session, once there is one — the CrazyGames join listener swaps it out. */
 let handle: GameHandle | null = null
+/** An invite that arrived while a start was in flight; applied the moment it lands. */
+let pendingInvite: RoomInvite | null = null
 
 const start = async (mode: GameMode): Promise<void> => {
   if (starting) return
@@ -256,6 +261,7 @@ const start = async (mode: GameMode): Promise<void> => {
     const mod = await (gameModule ?? import('../game/index.ts'))
     fit(stage)
     handle = await mod.startGame(stage, mode)
+    drainPending() // an invite that arrived while this start was connecting
 
     menu.remove()
     document.getElementById('howto')?.remove() // the rules sheet must not outlive the menu
@@ -339,34 +345,57 @@ const inviteMode = (inv: RoomInvite): GameMode =>
   'room' in inv ? { kind: 'code', code: inv.room } : { kind: 'id', roomId: inv.rid }
 
 // Accepting an invite while ALREADY playing must not reload the page (their requirement).
-// The session tears down and a new one boots on a fresh canvas: destroying a WebGL
-// renderer loses the canvas's context, and a canvas never gets a second one.
+// The next session boots on a second canvas WHILE the current one keeps running; only once
+// it is in the new room does the old session go — so a stale or full invite costs nothing
+// but a notice, and there is never a moment with no game and no menu. (A fresh canvas is
+// mandatory anyway: destroying a WebGL renderer loses its canvas's context for good.)
+let switching = false
+const drainPending = (): void => {
+  const inv = pendingInvite
+  if (!inv) return
+  pendingInvite = null
+  void switchRoom(inv)
+}
 const switchRoom = async (inv: RoomInvite): Promise<void> => {
-  const mode = inviteMode(inv)
-  if (!handle) {
-    void start(mode) // still on the menu (or mid-start): the ordinary path
+  if (switching || (starting && !handle)) {
+    pendingInvite = inv // a start or switch is in flight: follow it up, don't drop it
     return
   }
+  if (!handle) {
+    void start(inviteMode(inv)) // still on the menu: the ordinary path
+    return
+  }
+  switching = true
   const old = handle
-  handle = null
-  old.destroy()
-  const fresh = stage.cloneNode(false) as HTMLCanvasElement
-  stage.replaceWith(fresh)
-  stage = fresh
-  fit(stage)
+  const oldCanvas = stage
+  const fresh = oldCanvas.cloneNode(false) as HTMLCanvasElement
+  oldCanvas.after(fresh) // paints over the old arena while the new lobby connects
+  fit(fresh)
   try {
     const mod = await (gameModule ?? import('../game/index.ts'))
-    handle = await mod.startGame(stage, mode)
+    const next = await mod.startGame(fresh, inviteMode(inv))
+    handle = next
+    stage = fresh
+    old.destroy()
+    oldCanvas.remove()
+    document.documentElement.dataset.game = 'running' // the old teardown cleared the marker
   } catch (err) {
+    fresh.remove()
     console.error('boot: room switch failed', err)
-    location.search = 'room' in inv ? `?room=${inv.room}` : '' // last resort: a clean reload
+    old.alert(String(err).toLowerCase().includes('full') ? T.errFull : T.errNoRoom)
+  } finally {
+    switching = false
+    drainPending()
   }
 }
 
 // Portals: the menu IS the loaded state — the player can interact right now. gameplayStart
 // deliberately does NOT happen here; it fires on the first in-round input (game/index.ts).
-void portalInit().then(() => {
-  portalLoadingFinished()
+// The two SDKs initialise independently: the CrazyGames hooks below must be armed the
+// moment THEIR SDK is ready, never behind another SDK's (possibly slow) init.
+void pokiInit().then(pokiLoadingFinished)
+void cgInit().then(() => {
+  cgLoadingFinished()
   // CrazyGames' player has its own mute toggle; the menu's terror bed obeys it too.
   if (cgSettings().muteAudio) stopMenuAudio()
   cgOnSettingsChange((s) => {
