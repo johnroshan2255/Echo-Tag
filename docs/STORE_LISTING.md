@@ -1,9 +1,17 @@
 # Store Listings & Distribution Kit
 
 Copy-paste material for every portal, plus the distribution checklist. The game ships
-two zips: `npm run package` → `echo-tag-poki.zip` (with the Poki SDK) and
-`npm run package:web` → `echo-tag-web.zip` (portal-neutral, SDK stripped — use this for
-CrazyGames, itch.io, GameDistribution, Newgrounds, or self-hosting).
+three zips: `npm run package` → `echo-tag-poki.zip` (with the Poki SDK, chat OFF),
+`npm run package:crazygames` → `echo-tag-crazygames.zip` (portal-neutral, chat ON,
+checked against CrazyGames' 50 MB / 1,500-file limits) and `npm run package:web` →
+`echo-tag-web.zip` (portal-neutral, chat ON — itch.io, GameDistribution, Newgrounds,
+self-hosting).
+
+Chat policy differs per portal: Poki wants prior approval for any chat/UGC, so the Poki
+zip strips it. CrazyGames allows chat provided it is moderated — the server masks
+profanity on every relay (`Echo-Tag-Shared/src/chat/profanity.ts`), which is their
+stated minimum. For a CrazyGames **Full Launch** (ads on) the game must also integrate
+their SDK, including honouring the SDK's chat-disable setting.
 
 Multiplayer needs the Colyseus server deployed with wss and `VITE_WS_ORIGIN` set at
 build time (see POKI_DEPLOY.md) — PLAY (bots) works on every portal with zero backend.
@@ -74,7 +82,9 @@ PT-BR and ES first: they are the biggest non-EN traffic pools.
 ## Submission checklist per portal
 
 - [ ] Poki: `echo-tag-poki.zip` — chat approval FIRST (or ship chat behind a flag).
-- [ ] CrazyGames: `echo-tag-web.zip` + preview video; their QA tool mirrors Poki's.
+- [ ] CrazyGames: `echo-tag-crazygames.zip` + `docs/store-assets/` (cover-512 + four
+      1280x720 screenshots) + preview video. Basic Launch needs no SDK (and pays
+      nothing); Full Launch = CrazyGames SDK + chat-disable preference + second QA.
 - [ ] itch.io: `echo-tag-web.zip` as HTML5 playable + devlog post (the "4 worlds,
       4 monsters" writeup with the world screenshots).
 - [ ] GameDistribution / Newgrounds: `echo-tag-web.zip`.

@@ -19,6 +19,7 @@ import {
   addPlayer,
   createWorld,
   enterPhase,
+  filterProfanity,
   packKeys,
   queueAbility,
   queueToolUse,
@@ -129,13 +130,17 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     })
 
     this.onMessage(MSG.Chat, (client, text: unknown) => {
-      // Pure relay: sanitised, rate-limited, broadcast to the room, NEVER stored — chat
-      // exists only in the room context, exactly as long as the clients showing it.
+      // Pure relay: sanitised, profanity-masked (portal requirement — CrazyGames et al.
+      // demand at least a word filter on any chat), rate-limited, broadcast to the room,
+      // NEVER stored — chat exists only in the room context, exactly as long as the
+      // clients showing it.
       const slot = this.slotOf.get(client.sessionId)
       if (slot === undefined || typeof text !== 'string') return
       const now = Date.now()
       if (now < (this.chatNextAt.get(client.sessionId) ?? 0)) return
-      const clean = text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, CHAT_MAX_LEN)
+      const clean = filterProfanity(
+        text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, CHAT_MAX_LEN),
+      )
       if (clean.length === 0) return
       this.chatNextAt.set(client.sessionId, now + CHAT_MIN_INTERVAL_MS)
       this.broadcast(MSG.Chat, { slot, text: clean })
