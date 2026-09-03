@@ -140,6 +140,7 @@ export const enterPhase = (w: World, phase: RoundPhase): void => {
     w.timesCaught.fill(0)
     w.hiddenIn.fill(-1)
     w.wardrobeCooldownUntil.fill(0)
+    w.doorOpen.fill(0) // shut whatever the round-ending tick left ajar; updateDoors only runs in Playing
     w.turningSlot = -1
     w.unconsciousUntilTick.fill(0)
     w.trailOverlap.fill(0)

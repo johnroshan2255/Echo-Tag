@@ -110,11 +110,31 @@ const mirrorBodies = (): number => {
 
 try {
   // ── Quick match: two strangers share a public room ──
-  const a = await client().joinOrCreate('arena', { code: '' })
+  const a = await client().joinOrCreate('arena', { code: '', map: 0 })
   const sa = collect(a, mirrorSnap)
-  const b = await client().joinOrCreate('arena', { code: '' })
+  const b = await client().joinOrCreate('arena', { code: '', map: 0 })
   const sb = collect(b)
   ok(a.roomId === b.roomId, `quick match pools strangers together (${a.roomId})`)
+  // Pools are per arena: a different map pick never lands in this room, and the room it
+  // does open is on that map (filterBy(['code', 'map']) + onCreate's setMap).
+  const c = await client().joinOrCreate('arena', { code: '', map: 2 })
+  const sc = collect(c)
+  await wait(400)
+  ok(c.roomId !== a.roomId, 'a different map pick opens a separate public room')
+  ok(sc.welcome?.mapIndex === 2, `that room runs the picked map (${MAPS[2]?.name})`)
+  const c2 = await client().joinOrCreate('arena', { code: '', map: 2 })
+  ok(c2.roomId === c.roomId, 'same map pick joins the same room')
+  await c2.leave()
+  await c.leave()
+  // An unrunnable map is refused outright — never clamped into a room whose pool key no
+  // honest pick can reach.
+  let badMap = false
+  try {
+    await client().joinOrCreate('arena', { code: '', map: 9 })
+  } catch {
+    badMap = true
+  }
+  ok(badMap, 'an out-of-range map pick is refused, not clamped into an orphan room')
 
   await wait(2600) // past MAX_LOBBY_WAIT — public room must auto-start with bot fill
   ok(sa.welcome !== null && sb.welcome !== null, 'both received welcome payloads')
@@ -323,8 +343,10 @@ try {
     `the host chose the bot count: 2 humans + 3 bots = ${privSeats} seats (${privBots} bots)`,
   )
 
-  await host.leave()
+  // Friend first: the host's departure collapses the room and closes every other socket,
+  // and a leave() issued on an already-closed connection never resolves.
   await friend.leave()
+  await host.leave()
 } catch (err) {
   failures.push(`probe crashed: ${(err as Error).message}`)
   console.error(err)

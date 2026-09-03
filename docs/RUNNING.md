@@ -133,7 +133,8 @@ npm run check
 ```
 
 On screen today: the Canvas2D preview and Play button, then the world — one of **four fixed
-maps** (Foundry, Pillars, Serpentine, Warrens, rotating each round), larger than the screen,
+maps** (Foundry, Pillars, Serpentine, Warrens — picked on the menu; solo and private rooms rotate
+each round, a quick-match room keeps its map because players are matched into it), larger than the screen,
 seen through **fog of war**: a warm lantern pool around your avatar, roughly one room of
 visibility, and dusk beyond. Only the ghost leaves an echo trail (ADR 0013), and it is a
 hazard, not a wall (ADR 0012): walk into it and you black out for 3 seconds, fully

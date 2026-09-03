@@ -313,7 +313,7 @@ if (/^[A-Z]{5}$/.test(roomParam)) {
 }
 
 play.addEventListener('click', () => void start({ kind: 'bots', mapIndex: bmapIndex }))
-quick.addEventListener('click', () => void start({ kind: 'quick' }))
+quick.addEventListener('click', () => void start({ kind: 'quick', mapIndex: bmapIndex }))
 host.addEventListener('click', () => void start({ kind: 'host', mapIndex: bmapIndex }))
 joinForm.addEventListener('submit', (e) => {
   e.preventDefault()

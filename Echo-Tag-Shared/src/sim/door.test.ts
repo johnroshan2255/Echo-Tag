@@ -126,3 +126,16 @@ describe('doors', () => {
     }
   })
 })
+
+describe('doors across rounds', () => {
+  it('a new round starts with every door shut, even without a map change', () => {
+    // Public rooms keep their map between rounds (matchmaking pooled players INTO it), so
+    // the reset must live in the round start itself, not only in setMap().
+    const w = createWorld(7, 0)
+    addPlayer(w, false)
+    w.doorOpen[DOOR] = 1
+    enterPhase(w, RoundPhase.Leaderboard)
+    enterPhase(w, RoundPhase.Countdown)
+    assert.equal(w.doorOpen[DOOR], 0, 'door shut at round start')
+  })
+})

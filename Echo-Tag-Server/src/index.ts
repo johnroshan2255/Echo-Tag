@@ -13,16 +13,18 @@ import { env } from './config/env.ts'
  * a core) and ~15% less RSS than the ws transport, back to back on the same machine.
  * Byte-level flood throttling still belongs in the TLS proxy in front.
  *
- * `filterBy(['code'])` splits matchmaking into pools by the `code` join option:
- * quick-match clients all pass '' and share public rooms; a host creates with a fresh
- * 5-letter code and friends join with the same one. Private rooms additionally call
- * setPrivate, so they are invisible to everyone without the code.
+ * `filterBy(['code', 'map'])` splits matchmaking into pools by two join options: `code`
+ * ('' for quick match; a host creates with a fresh 5-letter code and friends join with the
+ * same one) and `map` (quick match only — the arena picked on the boot menu, so public
+ * rooms are per map). Privacy comes from the pool split alone, NOT setPrivate(): that would
+ * hide a private room from friends joining by code too. A join that names a filter field a
+ * room's listing lacks never matches — so code joins must not send `map`.
  */
 const server = new Server({
   transport: new uWebSocketsTransport(),
 })
 
-server.define('arena', ArenaRoom).filterBy(['code'])
+server.define('arena', ArenaRoom).filterBy(['code', 'map'])
 
 await server.listen(env.port)
 console.log(`echo-tag server listening on :${env.port}`)

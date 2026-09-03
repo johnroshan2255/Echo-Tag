@@ -151,7 +151,7 @@ for (let w = 1; w <= 5; w++) {
 // ── Scenario 3: public quick-match rooms abandoned (exercises the 30s grace window) ──
 {
   const rooms = await Promise.all(
-    Array.from({ length: 5 }, async () => quiet(await new Client(URL).joinOrCreate('arena', { code: '' }))),
+    Array.from({ length: 5 }, async (_, i) => quiet(await new Client(URL).joinOrCreate('arena', { code: '', map: i % 4 }))),
   )
   console.log('public wave: 5 quick-match clients in')
   await sleep(500)

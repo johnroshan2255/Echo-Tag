@@ -116,7 +116,7 @@ export interface GameHandle {
 
 export type GameMode =
   | { kind: 'bots'; mapIndex?: number }
-  | { kind: 'quick' }
+  | { kind: 'quick'; mapIndex: number }
   | { kind: 'host'; mapIndex?: number }
   | { kind: 'code'; code: string }
   /** A public room by id — how a CrazyGames friend follows you into quick match. */
@@ -186,7 +186,7 @@ export const startGame = async (canvas: HTMLCanvasElement, mode: GameMode = { ki
       const { connect, makeCode } = await import('./net/room.ts')
       net = await connect(
         mode.kind === 'quick'
-          ? { kind: 'quick' }
+          ? { kind: 'quick', mapIndex: mode.mapIndex }
           : mode.kind === 'host'
             ? { kind: 'host', code: makeCode() }
             : mode.kind === 'id'

@@ -49,8 +49,11 @@ import { createArenaState, createPlayerMeta, type ArenaStateT } from './state/Ar
  * ring exactly once in their welcome.
  *
  * Matchmaking is split into pools by the `code` option (`filterBy` in index.ts):
- *   - Quick match: joinOrCreate with code '' — everyone lands in shared public rooms,
- *     which bot-fill and start ~2s after the first human arrives.
+ *   - Quick match: joinOrCreate with code '' and the map picked on the boot menu — players
+ *     are pooled per arena (filterBy(['code', 'map'])), so two friends who both pick the
+ *     same map land together and a Pillars player never lands in a Foundry room. Public
+ *     rooms bot-fill, start ~2s after the first human arrives, and stay on their map
+ *     between rounds (the map IS the pool). Up to 12 seats per room.
  *   - Host private: create with a fresh 5-letter code, room marked private so quick match
  *     never routes strangers in; friends `join` with the same code. The host starts the
  *     round; bots fill the empty seats either way. Max 12 humans, always.
@@ -58,10 +61,16 @@ import { createArenaState, createPlayerMeta, type ArenaStateT } from './state/Ar
 
 interface JoinOptions {
   code?: string
+  /** Quick match only: the arena the player picked. Pools public rooms per map. */
+  map?: number
   /** CrazyGames user token (SDK.user.getUserToken()). The display name comes from its
    * VERIFIED claims — a client-chosen name is never accepted (auth/cgToken.ts). */
   cgToken?: string
 }
+
+/** Untrusted number → valid map index, or -1. Shared by the quick-match pool key and MSG.Map. */
+const mapIndexFrom = (n: unknown): number =>
+  typeof n === 'number' && Number.isInteger(n) && n >= 0 && n < MAP_COUNT ? n : -1
 
 /** Even a verified username is shown to strangers: whitelist the charset, cap, mask profanity. */
 const cleanName = (raw: string): string => filterProfanity(raw.replace(/[^A-Za-z0-9_.]/g, '').slice(0, 20))
@@ -114,6 +123,16 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
     // NOT setPrivate(): that hides the room from ALL matchmaking, including friends joining
     // by code. Privacy here comes from filterBy(['code']) pool separation — quick-match
     // clients all carry code '' and can never be routed into a room keyed by a real code.
+    // A public room is born on the map its first player asked for and keeps it: the
+    // matchmaker pooled everyone here by that map. The matchmaker stored the RAW option as
+    // the pool key before onCreate ran, so a value we cannot run verbatim is refused (the
+    // throw aborts the room) rather than clamped into a room nobody's pick can reach.
+    // Absent = an older client: map 0. Private rooms start on 0; the host picks (MSG.Map).
+    if (!this.state.isPrivate && options.map !== undefined) {
+      const m = mapIndexFrom(options.map)
+      if (m < 0) throw new Error('bad map')
+      setMap(this.world, m)
+    }
     this.state.mapIndex = this.world.map.index
     this.state.roundMins = Math.round(this.world.roundDurationMs / 60_000)
 
@@ -198,8 +217,8 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
       // bots and round length.
       if (client.sessionId !== this.state.hostId) return
       if (!this.state.isPrivate || this.world.phase !== RoundPhase.Lobby) return
-      if (typeof n !== 'number' || !Number.isInteger(n)) return
-      const index = Math.max(0, Math.min(MAP_COUNT - 1, n))
+      const index = mapIndexFrom(n)
+      if (index < 0) return
       setMap(this.world, index)
       this.state.mapIndex = index
     })
@@ -330,8 +349,13 @@ export class ArenaRoom extends Room<{ state: ArenaStateT }> {
   }
 
   private nextRound(): void {
-    setMap(this.world, (this.world.map.index + 1) % MAP_COUNT)
-    this.state.mapIndex = this.world.map.index
+    // Private rooms tour the arenas between rounds. A public room never changes map: its
+    // players were matched INTO this map, and a mid-session switch would strand a friend
+    // who quick-matches into it a round later expecting the arena they picked.
+    if (this.state.isPrivate) {
+      setMap(this.world, (this.world.map.index + 1) % MAP_COUNT)
+      this.state.mapIndex = this.world.map.index
+    }
     this.startRound()
   }
 

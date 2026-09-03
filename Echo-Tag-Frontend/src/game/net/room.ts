@@ -38,7 +38,8 @@ import { Client, type Room } from '@colyseus/sdk'
  */
 
 export type JoinMode =
-  | { kind: 'quick' }
+  /** Quick match on one arena: the matchmaker pools public rooms per map. */
+  | { kind: 'quick'; mapIndex: number }
   | { kind: 'host'; code: string }
   | { kind: 'code'; code: string }
   /** A specific public room by Colyseus id (CrazyGames friend-join into quick match). */
@@ -125,8 +126,13 @@ export const connect = async (mode: JoinMode, cgToken = ''): Promise<NetGame> =>
   const client = new Client(wsOrigin())
   let room: Room
   const code = mode.kind === 'quick' || mode.kind === 'id' ? '' : mode.code
-  const opts = cgToken ? { code, cgToken } : { code }
-  if (mode.kind === 'quick') room = await client.joinOrCreate('arena', opts)
+  // `map` rides ONLY on quick match. The server pools public rooms by it, and Colyseus
+  // fails a join outright when it filters on a field the room's listing lacks — private
+  // rooms carry no `map`, so a code join (or the ?room= refresh-rejoin) that sent one
+  // would get "no rooms found", not a narrower match.
+  const opts: { code: string; cgToken?: string; map?: number } = { code }
+  if (cgToken) opts.cgToken = cgToken
+  if (mode.kind === 'quick') room = await client.joinOrCreate('arena', { ...opts, map: mode.mapIndex })
   else if (mode.kind === 'id') room = await client.joinById(mode.roomId, opts)
   else if (mode.kind === 'host') room = await client.create('arena', opts)
   else room = await client.join('arena', opts)

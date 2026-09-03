@@ -49,6 +49,11 @@ fetched key — only the e2e check sets it. Railway redeploys from `main`; mergi
 the Railway service at `crazygames`) ships it. Until then the client simply shows colours,
 exactly as before — nothing breaks against the older server.
 
+Quick match is pooled per map (`filterBy(['code', 'map'])`, client sends the boot-menu pick).
+Deploy **server first**, then upload the zip: an old client against the new server just omits
+`map` and lands on Foundry, but a new client against the old server has its pick ignored and
+its room rotates maps every round — the picker would look broken to a reviewer.
+
 ## Verify
 
 ```

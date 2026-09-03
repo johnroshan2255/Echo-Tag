@@ -31,7 +31,7 @@ class StressRoom extends ArenaRoom {
 }
 
 const server = new Server({ transport: new uWebSocketsTransport() })
-server.define('arena', StressRoom).filterBy(['code'])
+server.define('arena', StressRoom).filterBy(['code', 'map'])
 await server.listen(2599)
 console.log('stress server ready on :2599')
 
